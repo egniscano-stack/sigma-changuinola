@@ -490,7 +490,7 @@ function App() {
             </button>
 
             <img
-              src="/sigma-logo-unified.png"
+              src={`${import.meta.env.BASE_URL}sigma-logo-final.png`}
               alt="Logo"
               className="h-8 w-8 mr-3 object-contain md:hidden"
             />

@@ -31,7 +31,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, validUsers }) => {
       <div className="mb-8 text-center flex flex-col items-center">
         <div className="bg-white p-4 rounded-full mb-6 shadow-2xl ring-4 ring-emerald-500/30">
           <img
-            src="/sigma-new-logo.jpg"
+            src={`${import.meta.env.BASE_URL}sigma-logo-final.png`}
             alt="SIGMA Changuinola Logo"
             className="h-56 w-56 object-contain rounded-full"
           />

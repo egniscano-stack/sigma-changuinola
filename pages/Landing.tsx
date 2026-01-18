@@ -29,7 +29,7 @@ export const Landing: React.FC<LandingProps> = ({ onNavigate }) => {
                         {/* Subtle glow for light bg */}
                         <div className="absolute -inset-4 bg-emerald-500/10 rounded-full blur-xl transition duration-1000 group-hover:bg-emerald-500/20"></div>
                         <img
-                            src="/sigma-logo-unified.png"
+                            src={`${import.meta.env.BASE_URL}sigma-logo-final.png`}
                             alt="SIGMA Logo"
                             className="relative h-28 sm:h-32 md:h-48 w-auto object-contain drop-shadow-xl hover:scale-105 transition-transform duration-300 pointer-events-none select-none"
                         />

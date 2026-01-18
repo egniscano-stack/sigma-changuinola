@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
 
           <div className="mb-3 bg-white p-1 rounded-full ring-2 ring-emerald-500/50">
             <img
-              src="/sigma-logo-unified.png"
+              src={`${import.meta.env.BASE_URL}sigma-logo-final.png`}
               alt="Logo"
               className="h-20 w-20 object-contain"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}

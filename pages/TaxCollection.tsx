@@ -221,7 +221,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, config,
               {/* New Top Centered Municipal Logo */}
               <div className="flex justify-center mb-6">
                 <img
-                  src="/municipio-logo-bw.png"
+                  src={`${import.meta.env.BASE_URL}municipio-logo-bw.png`}
                   alt="Escudo Municipal"
                   className="h-32 object-contain grayscale"
                 />

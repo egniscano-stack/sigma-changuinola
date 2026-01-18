@@ -154,7 +154,7 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
                 <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4 w-full sm:w-auto">
                         <div className="bg-white p-1.5 rounded-full shadow-md ring-2 ring-emerald-500/50 shrink-0">
-                            <img src="/logo-municipio.png" alt="Escudo Municipal" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" />
+                            <img src={`${import.meta.env.BASE_URL}logo-municipio.png`} alt="Escudo Municipal" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" />
                         </div>
                         <div className="min-w-0">
                             <h1 className="font-bold text-lg sm:text-2xl leading-none tracking-tight truncate">Sistema de Cobro Digital</h1>
@@ -400,7 +400,7 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
                         <div className="bg-white p-6 md:p-8 pb-4 relative z-10">
                             <div className="flex justify-center mb-6">
                                 <img
-                                    src="/municipio-logo-bw.png"
+                                    src={`${import.meta.env.BASE_URL}municipio-logo-bw.png`}
                                     alt="Escudo Municipal"
                                     className="h-32 object-contain grayscale"
                                 />
@@ -529,7 +529,7 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
                                 {/* Certificate Header - Compressed */}
                                 {/* Certificate Header - Highly Compressed */}
                                 <div className="text-center w-full border-b-2 border-emerald-800 pb-2 mb-2 relative z-10 flex flex-col items-center">
-                                    <img src="/municipio-logo-bw.png" alt="Logo" className="h-16 w-auto mb-1 grayscale object-contain" />
+                                    <img src={`${import.meta.env.BASE_URL}municipio-logo-bw.png`} alt="Logo" className="h-16 w-auto mb-1 grayscale object-contain" />
 
                                     <h1 className="text-lg font-bold uppercase tracking-widest text-slate-900 leading-none">República de Panamá</h1>
                                     <h2 className="text-base font-bold text-emerald-800 uppercase tracking-wider leading-tight">Municipio de Changuinola</h2>
