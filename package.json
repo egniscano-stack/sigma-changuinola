@@ -10,7 +10,7 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
-  "homepage": "https://egniscano-stack.github.io/sigma-changuinola1",
+  "homepage": "https://egniscano-stack.github.io/sigma-changuinola",
   "dependencies": {
     "@google/genai": "^1.37.0",
     "@google/generative-ai": "^0.24.1",
