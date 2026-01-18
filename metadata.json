@@ -1,0 +1,8 @@
+{
+  "name": "SIGMA Changuinola",
+  "description": "Sistema Inteligente de Gestión Municipal y Administrativa para el Distrito de Changuinola.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
