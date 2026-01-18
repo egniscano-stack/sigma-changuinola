@@ -13,14 +13,14 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavigate, onLogout, isOpen, onClose }) => {
   const allMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN'] },
-    { id: 'taxpayers', label: 'Contribuyentes', icon: Users, roles: ['ADMIN', 'CAJERO'] },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'AUDITOR'] },
+    { id: 'taxpayers', label: 'Contribuyentes', icon: Users, roles: ['ADMIN', 'CAJERO', 'AUDITOR'] },
     // Split into Caja and Cobros
     { id: 'caja', label: 'Caja', icon: Banknote, roles: ['ADMIN', 'CAJERO'] },
-    { id: 'cobros', label: 'Gestión de Cobros', icon: AlertCircle, roles: ['ADMIN', 'CAJERO'] },
+    { id: 'cobros', label: 'Gestión de Cobros', icon: AlertCircle, roles: ['ADMIN', 'CAJERO', 'AUDITOR'] },
 
     { id: 'scanner', label: 'Digitalizador IA', icon: ScanLine, roles: ['ADMIN'] },
-    { id: 'reports', label: 'Reportes', icon: FileText, roles: ['ADMIN'] },
+    { id: 'reports', label: 'Reportes', icon: FileText, roles: ['ADMIN', 'AUDITOR'] },
     { id: 'settings', label: 'Administración', icon: Settings, roles: ['ADMIN'] },
   ];
 
@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
 
           <div className="mb-3 bg-white p-1 rounded-full ring-2 ring-emerald-500/50">
             <img
-              src="/sigma-logo.png"
+              src="/sigma-logo-unified.png"
               alt="Logo"
               className="h-20 w-20 object-contain"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
@@ -93,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
             <span>Cerrar Sesión</span>
           </button>
           <div className="mt-4 text-center">
-            <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : 'Cajero'}</p>
+            <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : userRole === 'AUDITOR' ? 'Auditor' : 'Cajero'}</p>
           </div>
         </div>
       </div>

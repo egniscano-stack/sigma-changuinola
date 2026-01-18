@@ -90,17 +90,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, validUsers }) => {
             INGRESAR AL SISTEMA
           </button>
 
-          <div className="text-center mt-4 p-3 bg-slate-900/50 rounded border border-slate-700">
-            <p className="text-xs text-emerald-400 font-semibold mb-1">
-              Credenciales de Acceso (Demo):
-            </p>
-            <p className="text-xs text-slate-400">
-              Director: <span className="font-mono font-bold text-white">director</span> / <span className="font-mono font-bold text-white">admin</span>
-            </p>
-            <p className="text-xs text-slate-400">
-              Recaudación: <span className="font-mono font-bold text-white">recaudador</span> / <span className="font-mono font-bold text-white">cajero</span>
-            </p>
-          </div>
+
         </form>
       </div>
 

@@ -2,19 +2,20 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
-import { PortalLogin } from './components/PortalLogin'; // Import Portal Login
-import { usePersistentState } from './hooks/usePersistentState'; // Import Persistent Hook
+import { PortalLogin } from './components/PortalLogin';
+import { usePersistentState } from './hooks/usePersistentState';
 import { Dashboard } from './pages/Dashboard';
 import { Taxpayers } from './pages/Taxpayers';
 import { TaxCollection } from './pages/TaxCollection';
-import { Debts } from './pages/Debts'; // Import Debts Page
+import { Debts } from './pages/Debts';
 import { InvoiceScanner } from './pages/InvoiceScanner';
 import { Settings } from './pages/Settings';
 import { Reports } from './pages/Reports';
-import { INITIAL_CONFIG, MOCK_TAXPAYERS, MOCK_TRANSACTIONS } from './services/mockData';
-import { TaxpayerPortal } from './pages/TaxpayerPortal'; // Import Portal
+import { INITIAL_CONFIG } from './services/mockData';
+import { TaxpayerPortal } from './pages/TaxpayerPortal';
+import { Landing } from './pages/Landing'; // Import Landing
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus } from './types';
-import { Menu } from 'lucide-react';
+import { Menu, ArrowLeft } from 'lucide-react';
 import { db } from './services/db';
 
 // Initial Municipality Info
@@ -27,12 +28,6 @@ const INITIAL_MUNICIPALITY_INFO: MunicipalityInfo = {
   address: 'Ave. 17 de Abril, Changuinola'
 };
 
-// Initial Users
-const INITIAL_USERS: User[] = [
-  { username: 'director', name: 'Director Municipal', role: 'ADMIN', password: 'admin' },
-  { username: 'recaudador', name: 'Oficial de Recaudación', role: 'CAJERO', password: 'cajero' }
-];
-
 function App() {
   // Authentication State
   const [user, setUser] = useState<User | null>(null);
@@ -40,11 +35,10 @@ function App() {
   // Layout State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Global App State (Simulating Backend Database with Persistence)
   // Global App State (Fetched from Supabase)
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
-  const [municipalityInfo, setMunicipalityInfo] = usePersistentState<MunicipalityInfo>('sigma_municipality', INITIAL_MUNICIPALITY_INFO); // Keep local for now or move to DB config
+  const [municipalityInfo, setMunicipalityInfo] = usePersistentState<MunicipalityInfo>('sigma_municipality', INITIAL_MUNICIPALITY_INFO);
   const [taxpayers, setTaxpayers] = useState<Taxpayer[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [config, setConfig] = useState<TaxConfig>(INITIAL_CONFIG);
@@ -52,14 +46,16 @@ function App() {
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check navigation mode (Portal vs Admin)
-  const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL'>('ADMIN');
+  // Check navigation mode (Portal vs Admin vs Landing)
+  const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
 
   useEffect(() => {
-    // Check URL params for mode
+    // Check URL params for mode if present (deep linking support)
     const params = new URLSearchParams(window.location.search);
     if (params.get('mode') === 'portal') {
       setAppMode('PORTAL');
+    } else if (params.get('mode') === 'admin') {
+      setAppMode('ADMIN');
     }
 
     // Load Data from Supabase
@@ -97,7 +93,6 @@ function App() {
   // Handlers
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
-    // Set initial page based on role
     if (loggedInUser.role === 'CAJERO') {
       setCurrentPage('caja');
     } else {
@@ -109,35 +104,68 @@ function App() {
     setUser(null);
     setCurrentPage('dashboard');
     setSelectedDebtTaxpayer(null);
+    setAppMode('LANDING'); // Go back to landing on logout
   };
 
   const handleAddTaxpayer = async (newTp: Taxpayer) => {
     try {
       const created = await db.createTaxpayer(newTp);
       setTaxpayers([...taxpayers, created]);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error creating taxpayer", e);
-      alert("Error al guardar en base de datos");
+      alert(`Error al guardar en base de datos: ${e.message || JSON.stringify(e)}`);
     }
   };
 
   const handleUpdateTaxpayer = async (updatedTp: Taxpayer) => {
     try {
-      const updated = await db.updateTaxpayer(updatedTp);
-      setTaxpayers(taxpayers.map(tp => tp.id === updated.id ? updated : tp));
-    } catch (e) {
+      // Check if ID is a valid UUID (Postgres UUIDs are 36 chars)
+      // If the ID is short (e.g. "1" or "EXT-123"), it's a local/mock record that isn't in the DB.
+      // We must CREATE it instead of updating it.
+      const isInvalidId = updatedTp.id.length < 32;
+
+      if (isInvalidId) {
+        // It's a local record: Create it in DB to "Sync" it
+        // Remove the invalid ID so createTaxpayer generates a real UUID
+        const { id, ...dataToSync } = updatedTp;
+
+        // Ensure taxpayerNumber exists (legacy data might lack it)
+        if (!dataToSync.taxpayerNumber) {
+          dataToSync.taxpayerNumber = `${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+        }
+
+        const synced = await db.createTaxpayer(dataToSync as Taxpayer);
+
+        // Update local state: Replace the old invalid record with the new real one
+        setTaxpayers(taxpayers.map(tp => tp.id === updatedTp.id ? synced : tp));
+        alert("Contribuyente sincronizado con la base de datos exitosamente.");
+      } else {
+        // It's a real record: Update normally
+        const updated = await db.updateTaxpayer(updatedTp);
+        setTaxpayers(taxpayers.map(tp => tp.id === updated.id ? updated : tp));
+      }
+
+    } catch (e: any) {
       console.error("Error updating taxpayer", e);
-      alert("Error al actualizar en base de datos");
+      alert(`Error al actualizar en base de datos: ${e.message || JSON.stringify(e)}`);
     }
   };
 
   const handleDeleteTaxpayer = async (id: string) => {
     if (window.confirm('¿Está seguro de que desea eliminar este contribuyente? Esta acción no se puede deshacer.')) {
       try {
-        await db.deleteTaxpayer(id);
+        // If ID is short (not a UUID), it's a local mock record, so just remove from state
+        // without calling DB (which would fail with invalid syntax)
+        const isLocalRecord = id.length < 32;
+
+        if (!isLocalRecord) {
+          await db.deleteTaxpayer(id);
+        }
+
         setTaxpayers(taxpayers.filter(tp => tp.id !== id));
-      } catch (e) {
+      } catch (e: any) {
         console.error("Error deleting", e);
+        alert(`Error al eliminar: ${e.message || JSON.stringify(e)}`);
       }
     }
   };
@@ -161,6 +189,8 @@ function App() {
     }
   };
 
+  // ... (Keep other handlers like handleGoToPay, handlePayment same as before, simplified for brevity in replace tool but ensuring all needed logic is retained)
+
   const handleGoToPay = (taxpayer: Taxpayer) => {
     setSelectedDebtTaxpayer(taxpayer);
     setCurrentPage('caja');
@@ -173,7 +203,7 @@ function App() {
       taxType: paymentData.taxType,
       amount: paymentData.amount,
       date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString(),
+      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
       description: paymentData.description || `Pago de ${paymentData.taxType}`,
       status: 'PAGADO',
       paymentMethod: paymentData.paymentMethod,
@@ -181,12 +211,14 @@ function App() {
       metadata: paymentData.metadata
     };
 
-    // Save to DB
     db.createTransaction(newTransaction).then(savedTx => {
-      setTransactions([savedTx, ...transactions]);
-    }).catch(e => console.error("Error saving transaction", e));
+      setTransactions(prev => [savedTx, ...prev]);
+    }).catch(e => {
+      console.error("Error saving transaction", e);
+      alert(`Error al guardar: ${e.message || e.details || 'Error desconocido'}`);
+    });
 
-    return newTransaction; // Return to show in invoice
+    return newTransaction;
   };
 
   const handleUpdateConfig = async (newConfig: TaxConfig) => {
@@ -196,11 +228,9 @@ function App() {
     } catch (e) { console.error(e); }
   }
 
-
-  // --- DATA MANAGEMENT HANDLERS (Excel Backup/Import) ---
   const handleSimulateScraping = async () => {
     const newTaxpayer: Taxpayer = {
-      id: `EXT-${Date.now()}`, // Temporary ID, DB will generate UUID if we stripped it, but our logic handles it
+      id: `EXT-${Date.now()}`,
       taxpayerNumber: `EXT-${Math.floor(Math.random() * 90000)}`,
       type: TaxpayerType.JURIDICA,
       status: TaxpayerStatus.ACTIVO,
@@ -223,11 +253,63 @@ function App() {
   const handleExcelBackup = () => {
     try {
       const wb = XLSX.utils.book_new();
-      const wsTaxpayers = XLSX.utils.json_to_sheet(taxpayers);
-      XLSX.utils.book_append_sheet(wb, wsTaxpayers, "Contribuyentes");
-      const wsTransactions = XLSX.utils.json_to_sheet(transactions);
-      XLSX.utils.book_append_sheet(wb, wsTransactions, "Transacciones");
-      XLSX.writeFile(wb, `SIGMA_Respaldo_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+      // 1. Prepare Taxpayers Data (Flatten and Format)
+      const formattedTaxpayers = taxpayers.map(tp => ({
+        "ID Sistema": tp.id,
+        "N° Contribuyente": tp.taxpayerNumber,
+        "Tipo": tp.type,
+        "Estado Actual": tp.status,
+        "Identificación (RUC/Cédula)": tp.docId,
+        "Nombre / Razón Social": tp.name,
+        "Dirección": tp.address,
+        "Teléfono": tp.phone,
+        "Email": tp.email,
+        "Actividad Comercial": tp.hasCommercialActivity ? "SÍ" : "NO",
+        "Nombre Comercial": tp.commercialName || "N/A",
+        "Categoría Comercial": tp.commercialCategory,
+        "Servicio Basura": tp.hasGarbageService ? "ACTIVO" : "NO",
+        "Permiso Construcción": tp.hasConstruction ? "ACTIVO" : "NO",
+        "Vehículos Registrados": tp.vehicles && tp.vehicles.length > 0
+          ? tp.vehicles.map(v => `[${v.plate} - ${v.brand} ${v.model}]`).join(", ")
+          : "Ninguno",
+        "Fecha Registro": tp.createdAt
+      }));
+
+      const wsTaxpayers = XLSX.utils.json_to_sheet(formattedTaxpayers);
+      // Auto-width for columns (simple approximation)
+      const wscols = Object.keys(formattedTaxpayers[0] || {}).map(() => ({ wch: 25 }));
+      wsTaxpayers['!cols'] = wscols;
+
+      XLSX.utils.book_append_sheet(wb, wsTaxpayers, "Contribuyentes_Detallado");
+
+      // 2. Prepare Transactions Data (Full History)
+      const formattedTransactions = transactions.map(tx => {
+        // Find related taxpayer name for clarity
+        const relatedTp = taxpayers.find(t => t.id === tx.taxpayerId);
+
+        return {
+          "ID Transacción": tx.id,
+          "Fecha": tx.date,
+          "Hora": tx.time,
+          "Contribuyente ID": tx.taxpayerId,
+          "Contribuyente Nombre": relatedTp ? relatedTp.name : "Desconocido",
+          "Tipo de Tasa": tx.taxType,
+          "Descripción": tx.description,
+          "Monto Pagado": tx.amount,
+          "Método Pago": tx.paymentMethod,
+          "Estado": tx.status,
+          "Cajero": tx.tellerName
+        };
+      });
+
+      const wsTransactions = XLSX.utils.json_to_sheet(formattedTransactions);
+      wsTransactions['!cols'] = [{ wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 20 }, { wch: 40 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, wsTransactions, "Historial_Pagos_Completo");
+
+      // Generate File
+      XLSX.writeFile(wb, `SIGMA_Respaldo_Completo_${new Date().toISOString().split('T')[0]}.xlsx`);
+      alert("Respaldo Completo generado exitosamente.");
     } catch (error) {
       console.error("Error generating Excel backup:", error);
       alert("Error al generar el archivo Excel.");
@@ -239,7 +321,6 @@ function App() {
       const data = await file.arrayBuffer();
       const wb = XLSX.read(data);
       let importedTaxpayers = 0;
-      let importedTransactions = 0;
 
       const taxpayersSheet = wb.Sheets["Contribuyentes"];
       if (taxpayersSheet) {
@@ -268,7 +349,7 @@ function App() {
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard':
-        return user?.role === 'ADMIN' ? <Dashboard transactions={transactions} taxpayerCount={taxpayers.length} /> : null;
+        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Dashboard transactions={transactions} taxpayers={taxpayers} config={config} /> : null;
       case 'taxpayers':
         return (
           <Taxpayers
@@ -280,7 +361,7 @@ function App() {
             userRole={user?.role || 'CAJERO'}
           />
         );
-      case 'caja': // Renamed from collection
+      case 'caja':
         return (
           <TaxCollection
             taxpayers={taxpayers}
@@ -288,21 +369,26 @@ function App() {
             onPayment={handlePayment}
             currentUser={user!}
             municipalityInfo={municipalityInfo}
-            initialTaxpayer={selectedDebtTaxpayer} // Pass pre-selected from Debts page
+            initialTaxpayer={selectedDebtTaxpayer}
           />
         );
-      case 'cobros': // New Page
+      case 'cobros':
         return (
           <Debts
             taxpayers={taxpayers}
             transactions={transactions}
             onGoToPay={handleGoToPay}
+            userRole={user?.role}
           />
         );
       case 'scanner':
-        return user?.role === 'ADMIN' ? <InvoiceScanner /> : null;
+        return user?.role === 'ADMIN' ? (
+          <InvoiceScanner
+            onScanComplete={(newTx) => setTransactions([newTx, ...transactions])}
+          />
+        ) : null;
       case 'reports':
-        return user?.role === 'ADMIN' ? <Reports transactions={transactions} /> : null;
+        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} /> : null;
       case 'settings':
         return user?.role === 'ADMIN' ? (
           <Settings
@@ -323,21 +409,49 @@ function App() {
     }
   };
 
-  // Determine if user is a taxpayer to show Portal exclusively
-  const isTaxpayerPortal = user?.role === 'CONTRIBUYENTE';
+  // Unified Rendering Logic
 
   if (!user) {
-    if (appMode === 'PORTAL') {
-      return <PortalLogin onLogin={handleLogin} taxpayers={taxpayers} />;
+    // Stage 1: Landing Page (Default)
+    if (appMode === 'LANDING') {
+      return <Landing onNavigate={setAppMode} />;
     }
-    return <Login onLogin={handleLogin} validUsers={registeredUsers} />;
+
+    // Stage 2: Unified Back Button
+    const BackButton = () => (
+      <button
+        onClick={() => setAppMode('LANDING')}
+        className="absolute top-4 left-4 flex items-center text-slate-500 hover:text-slate-800 transition-colors z-50 bg-white/80 backdrop-blur px-3 py-1 rounded-full shadow-sm"
+      >
+        <ArrowLeft size={16} className="mr-1" /> Volver al Inicio
+      </button>
+    );
+
+    // Stage 3: Mode Specific Login
+    if (appMode === 'PORTAL') {
+      return (
+        <div className="relative">
+          <BackButton />
+          <PortalLogin onLogin={handleLogin} taxpayers={taxpayers} />
+        </div>
+      );
+    }
+
+    // Default to ADMIN login
+    return (
+      <div className="relative">
+        <BackButton />
+        <Login onLogin={handleLogin} validUsers={registeredUsers} />
+      </div>
+    );
   }
 
-  if (isTaxpayerPortal) {
-    // Find the actual taxpayer data object based on the login session
-    // For demo, we matched username to docId in Login.tsx
-    const currentTaxpayer = taxpayers.find(t => t.docId === user.username);
+  // LOGGED IN STATE ------------------------------------
 
+  const isTaxpayerPortal = user?.role === 'CONTRIBUYENTE';
+
+  if (isTaxpayerPortal) {
+    const currentTaxpayer = taxpayers.find(t => t.docId === user.username);
     if (!currentTaxpayer) return <div>Error: Datos de contribuyente no encontrados. <button onClick={handleLogout}>Salir</button></div>;
 
     return (
@@ -352,6 +466,7 @@ function App() {
     );
   }
 
+  // Admin Dashboard View
   return (
     <div className="flex min-h-screen bg-slate-50 relative overflow-hidden">
       <Sidebar
@@ -375,7 +490,7 @@ function App() {
             </button>
 
             <img
-              src="/sigma-logo.png"
+              src="/sigma-logo-unified.png"
               alt="Logo"
               className="h-8 w-8 mr-3 object-contain md:hidden"
             />

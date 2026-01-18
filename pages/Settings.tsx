@@ -461,6 +461,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 >
                   <option value="CAJERO">Cajero (Cobros)</option>
                   <option value="ADMIN">Administrador (Total)</option>
+                  <option value="AUDITOR">Auditor (Solo Lectura)</option>
                 </select>
               </div>
 

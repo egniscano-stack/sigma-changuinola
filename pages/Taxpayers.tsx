@@ -132,13 +132,15 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
     <div className="space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-xl md:text-2xl font-bold text-slate-800">Directorio de Contribuyentes</h2>
-        <button
-          onClick={() => { setNewTp(initialFormState); setShowModal(true); }}
-          className="w-full sm:w-auto bg-emerald-600 text-white px-4 py-3 rounded-lg flex items-center justify-center hover:bg-emerald-700 shadow-sm transition-transform active:scale-95 font-medium"
-        >
-          <UserPlus size={18} className="mr-2" />
-          Nuevo Registro
-        </button>
+        {userRole !== 'AUDITOR' && (
+          <button
+            onClick={() => { setNewTp(initialFormState); setShowModal(true); }}
+            className="w-full sm:w-auto bg-emerald-600 text-white px-4 py-3 rounded-lg flex items-center justify-center hover:bg-emerald-700 shadow-sm transition-transform active:scale-95 font-medium"
+          >
+            <UserPlus size={18} className="mr-2" />
+            Nuevo Registro
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

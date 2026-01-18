@@ -98,8 +98,16 @@ export const db = {
 
     updateTaxpayer: async (taxpayer: Taxpayer) => {
         const dbData = mapTaxpayerToDB(taxpayer);
-        const { data, error } = await supabase.from('taxpayers').update(dbData).eq('id', taxpayer.id).select().single();
-        if (error) throw error;
+        // Remove ID from the update payload to prevent PK update errors
+        const idToUpdate = dbData.id;
+        delete (dbData as any).id;
+
+        const { data, error } = await supabase.from('taxpayers').update(dbData).eq('id', idToUpdate).select().single();
+
+        if (error) {
+            console.error("Error updating taxpayer in DB:", error);
+            throw error;
+        }
         return mapTaxpayerFromDB(data);
     },
 
@@ -117,8 +125,13 @@ export const db = {
 
     createTransaction: async (tx: Transaction) => {
         const dbData = mapTransactionToDB(tx);
+        // Do NOT remove ID. The column is likely TEXT and requires the client-generated ID.
+        console.log("Saving Transaction:", dbData);
         const { data, error } = await supabase.from('transactions').insert(dbData).select().single();
-        if (error) throw error;
+        if (error) {
+            console.error("Supabase Create Transaction Error:", error);
+            throw error;
+        }
         return mapTransactionFromDB(data);
     },
 
