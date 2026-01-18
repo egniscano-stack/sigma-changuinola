@@ -68,7 +68,26 @@ function App() {
           db.getConfig()
         ]);
 
-        setRegisteredUsers(usersData);
+        if (usersData.length === 0) {
+          console.log("No users found. Seeding default admin...");
+          const defaultAdmin: User = {
+            username: 'admin',
+            password: 'admin123', // In a real app, hash this!
+            name: 'Administrador Default',
+            role: 'ADMIN'
+          };
+          try {
+            const createdAdmin = await db.createAppUser(defaultAdmin);
+            setRegisteredUsers([createdAdmin]);
+          } catch (err) {
+            console.error("Failed to seed default admin:", err);
+            // Fallback for UI if DB insert fails (e.g. RLS blocks)
+            setRegisteredUsers([defaultAdmin]);
+          }
+        } else {
+          setRegisteredUsers(usersData);
+        }
+
         setTaxpayers(taxpayersData);
         setTransactions(transactionsData);
         if (configData) setConfig(configData);
