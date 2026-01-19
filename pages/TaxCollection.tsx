@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf';
 
 interface TaxCollectionProps {
   taxpayers: Taxpayer[];
+  transactions: Transaction[];
   config: TaxConfig;
   onPayment: (data: any) => Transaction;
   currentUser: User;
@@ -13,7 +14,7 @@ interface TaxCollectionProps {
   initialTaxpayer?: Taxpayer | null; // Optional prop to pre-fill
 }
 
-export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, config, onPayment, currentUser, municipalityInfo, initialTaxpayer }) => {
+export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer }) => {
   const [selectedTax, setSelectedTax] = useState<TaxType>(TaxType.VEHICULO);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -192,6 +193,73 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, config,
     }
   };
 
+  const handleDailyClosing = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const myTxs = transactions.filter(t => t.date === today && t.tellerName === currentUser.name);
+
+    if (myTxs.length === 0) {
+      alert("No hay transacciones registradas hoy para generar el cierre.");
+      return;
+    }
+
+    const total = myTxs.reduce((acc, t) => acc + t.amount, 0);
+
+    // Reuse similar logic to Reports but simplified for immediate download
+    const pdf = new jsPDF();
+
+    // Header
+    pdf.setFontSize(20);
+    pdf.text("Cierre de Caja Diario (Cajero)", 105, 20, { align: 'center' });
+
+    pdf.setFontSize(12);
+    pdf.text(`Fecha: ${today}`, 20, 35);
+    pdf.text(`Cajero: ${currentUser.name}`, 20, 42);
+    pdf.text(`Sucursal: Changuinola Principal`, 20, 49);
+
+    // Summary
+    pdf.setDrawColor(0);
+    pdf.setFillColor(240, 240, 240);
+    pdf.rect(140, 30, 50, 20, 'F');
+    pdf.setFontSize(10);
+    pdf.text("Total Recaudado:", 145, 38);
+    pdf.setFontSize(14);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`B/. ${total.toFixed(2)}`, 145, 45);
+
+    // Table
+    let y = 65;
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Hora", 20, y);
+    pdf.text("ID", 40, y);
+    pdf.text("Descripción", 80, y);
+    pdf.text("Método", 150, y);
+    pdf.text("Monto", 180, y);
+
+    pdf.line(20, y + 2, 190, y + 2);
+    y += 8;
+
+    pdf.setFont("helvetica", "normal");
+    myTxs.forEach(t => {
+      if (y > 280) { pdf.addPage(); y = 20; }
+      pdf.text(t.time, 20, y);
+      pdf.text(t.id, 40, y);
+      const desc = t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description;
+      pdf.text(desc, 80, y);
+      pdf.text(t.paymentMethod, 150, y);
+      pdf.text(t.amount.toFixed(2), 190, y, { align: 'right' });
+      y += 7;
+    });
+
+    pdf.line(20, y, 190, y);
+    y += 10;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Firma del Cajero: __________________________", 20, y + 20);
+
+    pdf.save(`Cierre_Caja_${currentUser.username}_${today}.pdf`);
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-24">
 
@@ -321,9 +389,18 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, config,
       )}
 
       {/* --- HEADER --- */}
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-slate-800">Caja Principal</h2>
-        <p className="text-slate-500 text-sm">Procesamiento de pagos y emisión de recibos.</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">Caja Principal</h2>
+          <p className="text-slate-500 text-sm">Procesamiento de pagos y emisión de recibos.</p>
+        </div>
+        <button
+          onClick={handleDailyClosing}
+          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-900 transition-colors shadow-sm"
+        >
+          <Download size={16} />
+          Cierre del Día
+        </button>
       </div>
 
       {/* --- SEARCH --- */}

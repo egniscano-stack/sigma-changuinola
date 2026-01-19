@@ -1,48 +1,61 @@
 import React, { useMemo } from 'react';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Legend
 } from 'recharts';
-import { Transaction, TaxType } from '../types';
-import { Download, FileText, TrendingUp, Calendar, Filter } from 'lucide-react';
+import { Transaction, TaxType, User } from '../types';
+import { Download, FileText, TrendingUp, Calendar, Filter, User as UserIcon, Printer } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 interface ReportsProps {
   transactions: Transaction[];
+  users: User[];
+  currentUser: User;
 }
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
-  
+export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUser }) => {
+  const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
+  const [selectedTeller, setSelectedTeller] = React.useState('ALL');
+
   // --- Data Processing ---
   const stats = useMemo(() => {
-    const totalRevenue = transactions.reduce((acc, t) => acc + t.amount, 0);
-    const avgTicket = totalRevenue / (transactions.length || 1);
-    const paidTransactions = transactions.filter(t => t.status === 'PAGADO').length;
-    
+    // 1. Filter Data based on UI State
+    const filtered = transactions.filter(t => {
+      const matchDate = t.date === selectedDate;
+      const matchTeller = selectedTeller === 'ALL' || t.tellerName === selectedTeller;
+      return matchDate && matchTeller;
+    });
+
+    const workingSet = filtered;
+
+    const totalRevenue = workingSet.reduce((acc, t) => acc + t.amount, 0);
+    const avgTicket = totalRevenue / (workingSet.length || 1);
+    const paidTransactions = workingSet.filter(t => t.status === 'PAGADO').length;
+
     // Group by Tax Type
     const byTypeMap = new Map<string, number>();
-    transactions.forEach(t => {
+    workingSet.forEach(t => {
       const current = byTypeMap.get(t.taxType) || 0;
       byTypeMap.set(t.taxType, current + t.amount);
     });
-    
+
     const byTypeData = Array.from(byTypeMap.entries()).map(([name, value]) => ({ name, value }));
 
-    // Group by Date (Last 7 entries simulation for demo)
+    // Group by Date 
     const byDateMap = new Map<string, number>();
-    // Sort transactions by date first
-    const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
+    const sortedTx = [...workingSet].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
     sortedTx.forEach(t => {
       const current = byDateMap.get(t.date) || 0;
       byDateMap.set(t.date, current + t.amount);
     });
-    
+
     const byDateData = Array.from(byDateMap.entries()).map(([date, amount]) => ({ date, amount }));
 
-    return { totalRevenue, avgTicket, paidTransactions, byTypeData, byDateData };
-  }, [transactions]);
+    return { totalRevenue, avgTicket, paidTransactions, byTypeData, byDateData, filteredTransactions: filtered };
+  }, [transactions, selectedDate, selectedTeller]);
 
   // --- Handlers ---
   const handleExportCSV = () => {
@@ -59,8 +72,8 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
       t.tellerName
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + headers.join(",") + "\n" 
+    const csvContent = "data:text/csv;charset=utf-8,"
+      + headers.join(",") + "\n"
       + rows.map(e => e.join(",")).join("\n");
 
     const encodedUri = encodeURI(csvContent);
@@ -72,6 +85,71 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
     document.body.removeChild(link);
   };
 
+  const handlePrintClosing = () => {
+    const filteredForReport = transactions.filter(t => {
+      const matchDate = t.date === selectedDate;
+      const matchTeller = selectedTeller === 'ALL' || t.tellerName === selectedTeller;
+      return matchDate && matchTeller;
+    });
+
+    const total = filteredForReport.reduce((acc, t) => acc + t.amount, 0);
+
+    const pdf = new jsPDF();
+
+    // Header
+    pdf.setFontSize(20);
+    pdf.text("Reporte de Cierre de Caja (Arqueo)", 105, 20, { align: 'center' });
+
+    pdf.setFontSize(12);
+    pdf.text(`Fecha: ${selectedDate}`, 20, 35);
+    pdf.text(`Cajero: ${selectedTeller === 'ALL' ? 'TODOS' : selectedTeller}`, 20, 42);
+    pdf.text(`Generado por: ${currentUser.name}`, 20, 49);
+
+    // Summary
+    pdf.setDrawColor(0);
+    pdf.setFillColor(240, 240, 240);
+    pdf.rect(140, 30, 50, 20, 'F');
+    pdf.setFontSize(10);
+    pdf.text("Total Recaudado:", 145, 38);
+    pdf.setFontSize(14);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`B/. ${total.toFixed(2)}`, 145, 45);
+
+    // Table
+    let y = 65;
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Hora", 20, y);
+    pdf.text("Transacción", 40, y);
+    pdf.text("Descripción", 80, y);
+    pdf.text("Método", 150, y);
+    pdf.text("Monto", 180, y);
+
+    pdf.line(20, y + 2, 190, y + 2);
+    y += 8;
+
+    pdf.setFont("helvetica", "normal");
+    filteredForReport.forEach(t => {
+      if (y > 280) { pdf.addPage(); y = 20; }
+      pdf.text(t.time, 20, y);
+      pdf.text(t.id, 40, y);
+      const desc = t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description;
+      pdf.text(desc, 80, y);
+      pdf.text(t.paymentMethod, 150, y);
+      pdf.text(t.amount.toFixed(2), 190, y, { align: 'right' });
+      y += 7;
+    });
+
+    pdf.line(20, y, 190, y);
+    y += 10;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Firma del Cajero: __________________________", 20, y + 20);
+    pdf.text("Firma del Supervisor: _______________________", 110, y + 20);
+
+    pdf.save(`Arqueo_${selectedDate}_${selectedTeller}.pdf`);
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -80,13 +158,51 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
           <h2 className="text-2xl font-bold text-slate-800">Reportes Financieros</h2>
           <p className="text-slate-500">Análisis detallado de recaudación y auditoría.</p>
         </div>
-        <button 
-          onClick={handleExportCSV}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 shadow-sm transition-all font-medium"
-        >
-          <Download size={18} />
-          Exportar Excel (CSV)
-        </button>
+      </div>
+
+      {/* Control Bar for Closing Report */}
+      <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-4 items-end justify-between">
+        <div className="flex gap-4 items-end w-full md:w-auto">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha de Arqueo</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cajero</label>
+            <select
+              value={selectedTeller}
+              onChange={(e) => setSelectedTeller(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 min-w-[200px]"
+            >
+              <option value="ALL">Todos los Cajeros</option>
+              {users.filter(u => u.role === 'CAJERO' || u.role === 'ADMIN').map(u => (
+                <option key={u.username} value={u.name}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={handlePrintClosing}
+            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 shadow-sm transition-all font-bold"
+          >
+            <Printer size={18} />
+            Generar Arqueo PDF
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 shadow-sm transition-all font-medium"
+          >
+            <Download size={18} />
+            Exportar General CSV
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -94,30 +210,24 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex justify-between items-start mb-4">
             <div>
-              <p className="text-sm font-medium text-slate-500">Ingresos Totales</p>
+              <p className="text-sm font-medium text-slate-500">Ingresos Totales (Filtrado)</p>
               <h3 className="text-3xl font-bold text-slate-800 mt-1">B/. {stats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</h3>
             </div>
             <div className="p-3 bg-emerald-100 rounded-lg text-emerald-600">
               <TrendingUp size={24} />
             </div>
           </div>
-          <div className="text-xs text-slate-500">
-            <span className="text-emerald-600 font-bold">▲ 12%</span> vs mes anterior
-          </div>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex justify-between items-start mb-4">
             <div>
-              <p className="text-sm font-medium text-slate-500">Transacciones Pagadas</p>
+              <p className="text-sm font-medium text-slate-500">Transacciones (Filtrado)</p>
               <h3 className="text-3xl font-bold text-slate-800 mt-1">{stats.paidTransactions}</h3>
             </div>
             <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
               <FileText size={24} />
             </div>
-          </div>
-           <div className="text-xs text-slate-500">
-            Operaciones registradas en caja
           </div>
         </div>
 
@@ -131,58 +241,53 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
               <Filter size={24} />
             </div>
           </div>
-           <div className="text-xs text-slate-500">
-            Promedio de recaudación por recibo
-          </div>
         </div>
       </div>
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Chart 1: Revenue over Time */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
             <Calendar size={18} className="mr-2 text-slate-400" />
-            Tendencia de Recaudación (Diaria)
+            Tendencia de Recaudación (Filtrado)
           </h3>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={stats.byDateData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis 
-                  dataKey="date" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{fill: '#64748b', fontSize: 12}}
-                  tickFormatter={(val) => new Date(val).toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit'})}
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 12 }}
+                  tickFormatter={(val) => new Date(val).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
                 />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{fill: '#64748b', fontSize: 12}}
-                  tickFormatter={(val) => `B/.${val}`} 
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 12 }}
+                  tickFormatter={(val) => `B/.${val}`}
                 />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   formatter={(value: number) => [`B/. ${value.toFixed(2)}`, 'Monto']}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="amount" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3} 
-                  dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} 
-                  activeDot={{ r: 6 }} 
+                <Line
+                  type="monotone"
+                  dataKey="amount"
+                  stroke="#3b82f6"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }}
+                  activeDot={{ r: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Chart 2: Revenue by Tax Type */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
-            <PieChart size={18} className="mr-2 text-slate-400" /> {/* Just icon class, not component */}
+            <PieChart size={18} className="mr-2 text-slate-400" />
             Distribución por Tipo de Impuesto
           </h3>
           <div className="h-72 w-full flex">
@@ -205,15 +310,15 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
               </PieChart>
             </ResponsiveContainer>
             <div className="w-[40%] flex flex-col justify-center space-y-3">
-               {stats.byTypeData.map((entry, index) => (
-                 <div key={index} className="flex items-center text-sm">
-                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                    <div>
-                      <p className="text-slate-600 font-medium">{entry.name}</p>
-                      <p className="text-slate-900 font-bold">B/. {entry.value.toFixed(2)}</p>
-                    </div>
-                 </div>
-               ))}
+              {stats.byTypeData.map((entry, index) => (
+                <div key={index} className="flex items-center text-sm">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                  <div>
+                    <p className="text-slate-600 font-medium">{entry.name}</p>
+                    <p className="text-slate-900 font-bold">B/. {entry.value.toFixed(2)}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -222,7 +327,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
       {/* Detailed Transaction Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-200">
-          <h3 className="text-lg font-bold text-slate-800">Detalle de Transacciones</h3>
+          <h3 className="text-lg font-bold text-slate-800">Detalle de Transacciones (Filtrado)</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -237,7 +342,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {transactions.map((t) => (
+              {stats.filteredTransactions.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 font-mono text-slate-600">{t.id}</td>
                   <td className="px-6 py-4 text-slate-800">
@@ -260,10 +365,10 @@ export const Reports: React.FC<ReportsProps> = ({ transactions }) => {
               ))}
             </tbody>
           </table>
-          {transactions.length === 0 && (
-             <div className="p-8 text-center text-slate-400">
-               No hay transacciones registradas en este periodo.
-             </div>
+          {stats.filteredTransactions.length === 0 && (
+            <div className="p-8 text-center text-slate-400">
+              No hay transacciones que coincidan con los filtros.
+            </div>
           )}
         </div>
       </div>

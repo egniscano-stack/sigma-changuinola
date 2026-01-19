@@ -12,14 +12,15 @@ interface TaxpayersProps {
 }
 
 export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, onAdd, onUpdate, onDelete, userRole }) => {
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(false); // Legacy modal state, mostly unused now unless we want to keep it for editing via search
   const [searchTerm, setSearchTerm] = useState('');
-  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null); // State for dropdown menu
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Taxpayer[]>([]);
 
   // History Modal State
   const [historyTaxpayer, setHistoryTaxpayer] = useState<Taxpayer | null>(null);
 
-  // --- New Taxpayer Form State ---
+  // --- New Taxpayer Form State (Now Main View) ---
   // Initial empty state
   const initialFormState: Partial<Taxpayer> = {
     type: TaxpayerType.NATURAL,
@@ -45,11 +46,21 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   });
   const [showVehicleForm, setShowVehicleForm] = useState(false);
 
-  const filtered = taxpayers.filter(t =>
-    t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.docId.includes(searchTerm) ||
-    t.taxpayerNumber?.includes(searchTerm) // Search by Taxpayer Number
-  );
+  // Search Effect
+  React.useEffect(() => {
+    if (searchTerm.length > 2) {
+      setIsSearching(true);
+      const results = taxpayers.filter(t =>
+        t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.docId.includes(searchTerm) ||
+        (t.taxpayerNumber && t.taxpayerNumber.includes(searchTerm))
+      );
+      setSearchResults(results.slice(0, 5)); // Limit to 5 results
+    } else {
+      setIsSearching(false);
+      setSearchResults([]);
+    }
+  }, [searchTerm, taxpayers]);
 
   const handleAddVehicle = () => {
     if (!tempVehicle.plate || !tempVehicle.brand) {
@@ -94,8 +105,10 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
       createdAt: new Date().toISOString().split('T')[0]
     } as Taxpayer);
 
-    setShowModal(false);
+    // Instead of closing modal, we reset the form and show success feedback (alert for now)
     setNewTp(initialFormState);
+    alert("Contribuyente registrado exitosamente.");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const getCategoryLabel = (cat?: CommercialCategory) => {
@@ -129,390 +142,367 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   const totalPaidHistory = taxpayerHistory.reduce((acc, t) => acc + t.amount, 0);
 
   return (
-    <div className="space-y-6 pb-20">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-xl md:text-2xl font-bold text-slate-800">Directorio de Contribuyentes</h2>
-        {userRole !== 'AUDITOR' && (
-          <button
-            onClick={() => { setNewTp(initialFormState); setShowModal(true); }}
-            className="w-full sm:w-auto bg-emerald-600 text-white px-4 py-3 rounded-lg flex items-center justify-center hover:bg-emerald-700 shadow-sm transition-transform active:scale-95 font-medium"
-          >
-            <UserPlus size={18} className="mr-2" />
-            Nuevo Registro
-          </button>
-        )}
-      </div>
+    <div className="space-y-6 pb-20 relative min-h-screen bg-slate-50 -m-4 sm:-m-8 p-4 sm:p-8">
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* Search Bar */}
-        <div className="p-4 border-b border-slate-100">
-          <div className="relative max-w-md w-full">
-            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+      {/* --- TOP SEARCH BAR (Sticky) --- */}
+      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-md shadow-sm border-b border-slate-200 -mx-4 sm:-mx-8 px-4 sm:px-8 py-4 mb-6">
+        <div className="max-w-4xl mx-auto relative">
+          <div className="relative">
+            <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input
               type="text"
-              placeholder="Buscar por Nombre, RUC, Cédula o N° Contribuyente..."
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-black placeholder-slate-400 text-sm md:text-base"
+              placeholder="Buscar contribuyente existente (RUC, Cédula, Nombre)..."
+              className="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-full shadow-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 text-lg transition-all"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {searchTerm.length > 0 && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            )}
           </div>
-        </div>
 
-        {/* List - Responsive Table Container */}
-        <div className="overflow-x-auto w-full">
-          <table className="w-full text-left min-w-[800px] md:min-w-full">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="px-4 md:px-6 py-3 font-semibold">N° Contribuyente</th>
-                <th className="px-4 md:px-6 py-3 font-semibold">Contribuyente</th>
-                <th className="px-4 md:px-6 py-3 font-semibold">Identificación</th>
-                <th className="px-4 md:px-6 py-3 font-semibold">Servicios Activos</th>
-                <th className="px-4 md:px-6 py-3 font-semibold">Tipo</th>
-                <th className="px-4 md:px-6 py-3 font-semibold">Estado</th>
-                <th className="px-4 md:px-6 py-3 font-semibold text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.map((tp) => (
-                <tr key={tp.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 md:px-6 py-4">
-                    <span className="font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-xs md:text-sm">
-                      {tp.taxpayerNumber || 'N/A'}
-                    </span>
-                  </td>
-                  <td className="px-4 md:px-6 py-4">
-                    <div className="font-bold text-slate-800 text-sm md:text-base">{tp.name}</div>
-                    {tp.commercialName && <div className="text-xs text-indigo-600 font-medium">{tp.commercialName}</div>}
-                    <div className="text-xs text-slate-500 flex items-center mt-1 truncate max-w-[200px]">
-                      <MapPin size={10} className="mr-1 flex-shrink-0" /> {tp.address}
-                    </div>
-                  </td>
-                  <td className="px-4 md:px-6 py-4 text-sm text-slate-600">
-                    <div className="font-mono bg-slate-100 px-2 py-1 rounded inline-block text-black whitespace-nowrap text-xs md:text-sm">
-                      {tp.docId} {tp.dv && <span className="text-slate-400">DV-{tp.dv}</span>}
-                    </div>
-                  </td>
-                  <td className="px-4 md:px-6 py-4">
-                    <div className="flex gap-2">
-                      {tp.vehicles && tp.vehicles.length > 0 && (
-                        <span title={`${tp.vehicles.length} Vehículos`} className="bg-blue-100 text-blue-700 p-1.5 rounded-md"><Car size={14} /></span>
-                      )}
-                      {tp.hasCommercialActivity && (
-                        <span title="Comercio Activo" className="bg-indigo-100 text-indigo-700 p-1.5 rounded-md"><Store size={14} /></span>
-                      )}
-                      {tp.hasConstruction && (
-                        <span title="Obra en Construcción" className="bg-amber-100 text-amber-700 p-1.5 rounded-md"><Hammer size={14} /></span>
-                      )}
-                      {tp.hasGarbageService && (
-                        <span title="Recolección de Basura" className="bg-emerald-100 text-emerald-700 p-1.5 rounded-md"><Trash2 size={14} /></span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 md:px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap ${tp.type === TaxpayerType.JURIDICA ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'
-                      }`}>
-                      {tp.type}
-                    </span>
-                  </td>
-                  <td className="px-4 md:px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getStatusColor(tp.status)}`}>
-                      {tp.status}
-                    </span>
-                  </td>
-                  <td className="px-4 md:px-6 py-4 text-right relative">
-                    <div className="flex justify-end items-center gap-2">
-                      <button
-                        onClick={() => setHistoryTaxpayer(tp)}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors"
-                        title="Ver Historial"
-                      >
-                        <History size={18} />
-                      </button>
-
-                      {userRole === 'ADMIN' && (
-                        <div className="relative">
-                          <button
-                            onClick={() => setOpenActionMenuId(openActionMenuId === tp.id ? null : tp.id)}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors"
-                          >
-                            <MoreVertical size={18} />
-                          </button>
-
-                          {openActionMenuId === tp.id && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden text-left animate-fade-in">
-                              <div className="p-2 border-b border-slate-100 bg-slate-50 text-xs font-bold text-slate-500 uppercase">Cambiar Estado</div>
-                              <button onClick={() => handleStatusChange(tp, TaxpayerStatus.ACTIVO)} className="w-full px-4 py-2 text-sm text-left hover:bg-emerald-50 text-emerald-700 font-medium flex items-center">
-                                <CheckCircle size={14} className="mr-2" /> Activar
-                              </button>
-                              <button onClick={() => handleStatusChange(tp, TaxpayerStatus.SUSPENDIDO)} className="w-full px-4 py-2 text-sm text-left hover:bg-amber-50 text-amber-700 font-medium flex items-center">
-                                <ShieldAlert size={14} className="mr-2" /> Suspender
-                              </button>
-                              <button onClick={() => handleStatusChange(tp, TaxpayerStatus.BLOQUEADO)} className="w-full px-4 py-2 text-sm text-left hover:bg-red-50 text-red-700 font-medium flex items-center">
-                                <Ban size={14} className="mr-2" /> Bloquear
-                              </button>
-                              <div className="border-t border-slate-100 my-1"></div>
-                              <button onClick={() => { onDelete(tp.id); setOpenActionMenuId(null); }} className="w-full px-4 py-2 text-sm text-left hover:bg-red-50 text-red-600 font-bold flex items-center">
-                                <Trash2 size={14} className="mr-2" /> Eliminar
-                              </button>
-                            </div>
-                          )}
+          {/* Search Dropdown */}
+          {isSearching && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in z-50">
+              <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                Resultados Encontrados
+              </div>
+              <ul>
+                {searchResults.map(tp => (
+                  <li key={tp.id}>
+                    <button
+                      onClick={() => {
+                        setHistoryTaxpayer(tp);
+                        setSearchTerm('');
+                        setIsSearching(false);
+                      }}
+                      className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors flex items-center justify-between group"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-800 group-hover:text-indigo-700">{tp.name}</div>
+                        <div className="text-xs text-slate-500 flex items-center gap-2">
+                          <span className="font-mono bg-slate-100 px-1 rounded">{tp.docId}</span>
+                          <span>• {tp.taxpayerNumber}</span>
                         </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      </div>
+                      <div className="flex items-center text-slate-400 group-hover:text-indigo-500">
+                        <span className="text-xs mr-2 font-medium">Ver Ficha</span>
+                        <History size={16} />
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* --- ADD TAXPAYER MODAL (WIZARD STYLE) --- */}
-      {
-        showModal && (
-          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-fade-in">
+      {/* --- MAIN CONTENT: NEW RECORD FORM --- */}
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
 
-              {/* Modal Header */}
-              <div className="bg-slate-900 text-white p-4 md:p-6 flex justify-between items-center flex-shrink-0">
-                <div>
-                  <h3 className="text-lg md:text-xl font-bold">Registro Único</h3>
-                  <p className="text-slate-400 text-xs md:text-sm">Ventanilla Única Municipal</p>
-                </div>
-                <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white p-2">
-                  <X size={24} />
-                </button>
+        {/* Header */}
+        <div className="bg-slate-900 text-white p-6 md:p-8 flex items-center justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <UserPlus size={120} />
+          </div>
+
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-emerald-500/20 rounded-lg backdrop-blur text-emerald-300">
+                <UserPlus size={24} />
               </div>
+              <span className="text-emerald-400 font-bold tracking-wider text-sm uppercase">Nuevo Registro</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">Ficha de Contribuyente</h2>
+            <p className="text-slate-400 text-lg">Ingrese los datos para registrar un nuevo contribuyente.</p>
+          </div>
+        </div>
 
-              <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8">
+        {/* The Form Content (Reused from Modal) */}
+        <div className="p-6 md:p-10">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            {/* Same Sections as before, but without modal styling constraints */}
 
-                {/* SECTION 1: TYPE SELECTOR */}
-                <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setNewTp({ ...newTp, type: TaxpayerType.NATURAL })}
-                    className={`flex-1 py-3 md:py-4 rounded-xl flex items-center justify-center border-2 font-bold transition-all active:scale-95 ${newTp.type === TaxpayerType.NATURAL
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                      : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                      }`}
-                  >
-                    <User size={20} className="mr-3" /> Natural
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewTp({ ...newTp, type: TaxpayerType.JURIDICA, hasCommercialActivity: true })}
-                    className={`flex-1 py-3 md:py-4 rounded-xl flex items-center justify-center border-2 font-bold transition-all active:scale-95 ${newTp.type === TaxpayerType.JURIDICA
-                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                      : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                      }`}
-                  >
-                    <Briefcase size={20} className="mr-3" /> Jurídica
-                  </button>
+            {/* SECTION 1: TYPE SELECTOR */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button
+                type="button"
+                onClick={() => setNewTp({ ...newTp, type: TaxpayerType.NATURAL })}
+                className={`flex-1 py-4 md:py-6 rounded-2xl flex flex-col items-center justify-center border-2 font-bold transition-all active:scale-95 ${newTp.type === TaxpayerType.NATURAL
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-md ring-2 ring-emerald-500/20'
+                  : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-300 hover:bg-white'
+                  }`}
+              >
+                <User size={32} className="mb-2" />
+                <span className="text-lg">Persona Natural</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewTp({ ...newTp, type: TaxpayerType.JURIDICA, hasCommercialActivity: true })}
+                className={`flex-1 py-4 md:py-6 rounded-2xl flex flex-col items-center justify-center border-2 font-bold transition-all active:scale-95 ${newTp.type === TaxpayerType.JURIDICA
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-md ring-2 ring-indigo-500/20'
+                  : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-300 hover:bg-white'
+                  }`}
+              >
+                <Briefcase size={32} className="mb-2" />
+                <span className="text-lg">Persona Jurídica</span>
+              </button>
+            </div>
+
+            {/* SECTION 2: GENERAL DATA */}
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+              <h4 className="text-lg font-bold text-slate-800 mb-6 flex items-center border-b border-slate-200 pb-3">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mr-3 text-slate-600 font-bold text-sm">1</div>
+                Datos Generales
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Nombre Completo / Razón Social</label>
+                  <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                    value={newTp.name} onChange={e => setNewTp({ ...newTp, name: e.target.value })} placeholder="Ej. Juan Pérez o Inversiones del Caribe S.A." />
                 </div>
 
-                {/* SECTION 2: GENERAL DATA */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Nombre Completo / Razón Social</label>
-                    <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 text-black text-sm md:text-base"
-                      value={newTp.name} onChange={e => setNewTp({ ...newTp, name: e.target.value })} placeholder="Ej. Juan Pérez o Inversiones del Caribe S.A." />
-                  </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Identificación (Cédula / RUC)</label>
+                  <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                    value={newTp.docId} onChange={e => setNewTp({ ...newTp, docId: e.target.value })} placeholder={newTp.type === TaxpayerType.NATURAL ? '8-888-888' : '15569-88-99'} />
+                </div>
 
+                {newTp.type === TaxpayerType.JURIDICA && (
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Identificación</label>
-                    <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 text-black text-sm md:text-base"
-                      value={newTp.docId} onChange={e => setNewTp({ ...newTp, docId: e.target.value })} placeholder={newTp.type === TaxpayerType.NATURAL ? '8-888-888' : '15569-88-99'} />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Dígito Verificador (DV)</label>
+                    <input type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                      value={newTp.dv || ''} onChange={e => setNewTp({ ...newTp, dv: e.target.value })} placeholder="00" />
+                  </div>
+                )}
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Dirección Física</label>
+                  <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                    value={newTp.address} onChange={e => setNewTp({ ...newTp, address: e.target.value })} placeholder="Provincia, Distrito, Corregimiento, Casa..." />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono</label>
+                  <input type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                    value={newTp.phone} onChange={e => setNewTp({ ...newTp, phone: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico</label>
+                  <input type="email" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
+                    value={newTp.email} onChange={e => setNewTp({ ...newTp, email: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 3: SERVICES */}
+            <div className="bg-white rounded-2xl">
+              <h4 className="text-lg font-bold text-slate-800 mb-6 flex items-center border-b border-slate-100 pb-3">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mr-3 text-slate-600 font-bold text-sm">2</div>
+                Servicios y Activos
+              </h4>
+
+              <div className="space-y-8">
+                {/* 3.1 COMMERCIAL ACTIVITY & OTHERS */}
+                {/* Reusing logic but slightly restyled */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-indigo-50 p-5 rounded-xl border border-indigo-100 md:col-span-2">
+                    <div className="flex items-center justify-between mb-4">
+                      <label className="flex items-center cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="w-6 h-6 text-indigo-600 rounded focus:ring-indigo-500"
+                          checked={newTp.hasCommercialActivity}
+                          onChange={(e) => setNewTp({ ...newTp, hasCommercialActivity: e.target.checked })}
+                        />
+                        <div className="ml-3">
+                          <span className="block font-bold text-indigo-900 text-lg">Actividad Comercial</span>
+                          <span className="text-indigo-600/70 text-sm">Negocios, tiendas, industrias</span>
+                        </div>
+                      </label>
+                      <Store className="text-indigo-400 w-8 h-8" />
+                    </div>
+
+                    {newTp.hasCommercialActivity && (
+                      <div className="pl-0 md:pl-9 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in mt-4 border-t border-indigo-200/50 pt-4">
+                        <div>
+                          <label className="block text-xs font-bold text-indigo-800/60 uppercase mb-1">Nombre Comercial</label>
+                          <input type="text" className="w-full p-3 border border-indigo-200 rounded-lg text-black bg-white focus:ring-2 focus:ring-indigo-500"
+                            value={newTp.commercialName} onChange={e => setNewTp({ ...newTp, commercialName: e.target.value })} placeholder="Ej. Mini Super El Chino" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-indigo-800/60 uppercase mb-1">Categoría</label>
+                          <select
+                            className="w-full p-3 border border-indigo-200 rounded-lg bg-white text-black"
+                            value={newTp.commercialCategory}
+                            onChange={e => setNewTp({ ...newTp, commercialCategory: e.target.value as CommercialCategory })}
+                          >
+                            <option value={CommercialCategory.NONE}>Seleccionar...</option>
+                            <option value={CommercialCategory.CLASE_A}>Clase A (Bancos, Supermercados)</option>
+                            <option value={CommercialCategory.CLASE_B}>Clase B (Tiendas, Farmacias)</option>
+                            <option value={CommercialCategory.CLASE_C}>Clase C (Kioscos, Buhonería)</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {newTp.type === TaxpayerType.JURIDICA && (
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-1">Dígito Verificador (DV)</label>
-                      <input type="text" className="w-full border border-slate-300 rounded-lg p-3 text-black text-sm md:text-base"
-                        value={newTp.dv || ''} onChange={e => setNewTp({ ...newTp, dv: e.target.value })} placeholder="00" />
+                  {/* Construction */}
+                  <div className="bg-amber-50 p-5 rounded-xl border border-amber-100 flex items-center justify-between hover:bg-amber-100/50 transition-colors">
+                    <label className="flex items-center cursor-pointer select-none w-full">
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
+                        checked={newTp.hasConstruction}
+                        onChange={(e) => setNewTp({ ...newTp, hasConstruction: e.target.checked })}
+                      />
+                      <div className="ml-3">
+                        <span className="block font-bold text-amber-900">Permisos Construcción</span>
+                        <span className="text-sm text-amber-700/60">Obras civiles activas</span>
+                      </div>
+                    </label>
+                    <Hammer className="text-amber-400 w-6 h-6" />
+                  </div>
+
+                  {/* Garbage */}
+                  <div className="bg-emerald-50 p-5 rounded-xl border border-emerald-100 flex items-center justify-between hover:bg-emerald-100/50 transition-colors">
+                    <label className="flex items-center cursor-pointer select-none w-full">
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500"
+                        checked={newTp.hasGarbageService}
+                        onChange={(e) => setNewTp({ ...newTp, hasGarbageService: e.target.checked })}
+                      />
+                      <div className="ml-3">
+                        <span className="block font-bold text-emerald-900">Recolección Basura</span>
+                        <span className="text-sm text-emerald-700/60">Servicio activo</span>
+                      </div>
+                    </label>
+                    <Trash2 className="text-emerald-400 w-6 h-6" />
+                  </div>
+                </div>
+
+                {/* 3.2 VEHICLES */}
+                <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mt-6 relative">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-200/50 rounded-lg text-blue-600">
+                        <Car size={24} />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-blue-900 text-lg">Parque Vehicular</h5>
+                        <p className="text-blue-700/60 text-sm">Gestionar vehículos y traspasos</p>
+                      </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowVehicleForm(!showVehicleForm)}
+                      className="mt-3 sm:mt-0 px-4 py-2 bg-white text-blue-600 border border-blue-200 rounded-lg font-bold shadow-sm hover:shadow-md transition-all active:scale-95 flex items-center"
+                    >
+                      {showVehicleForm ? <X size={18} className="mr-2" /> : <Plus size={18} className="mr-2" />}
+                      {showVehicleForm ? 'Cancelar' : 'Agregar Vehículo'}
+                    </button>
+                  </div>
+
+                  {/* List of added vehicles */}
+                  {newTp.vehicles && newTp.vehicles.length > 0 ? (
+                    <div className="space-y-3 mb-6">
+                      {newTp.vehicles.map((v, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-4">
+                              <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500">
+                                <Car size={20} />
+                              </div>
+                              <div>
+                                <h6 className="font-bold text-slate-800 text-lg">{v.brand} {v.model}</h6>
+                                <p className="text-slate-500 text-sm">Año: {v.year} • Color: {v.color}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="block font-mono font-bold bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm mb-1">{v.plate}</span>
+                            </div>
+                          </div>
+                          <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
+                            <div className="flex gap-2">
+                              {/* These buttons are placeholders in 'Creation Mode' mostly, but functional logic remains */}
+                              <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">VIN: {v.chassisSerial}</span>
+                            </div>
+                            <button type="button" onClick={() => removeVehicle(v.plate)} className="text-red-500 hover:text-red-700 flex items-center text-sm font-bold bg-red-50 hover:bg-red-100 px-3 py-1 rounded-lg transition-colors">
+                              <Trash2 size={16} className="mr-2" /> Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    !showVehicleForm && (
+                      <div className="text-center py-8 border-2 border-dashed border-blue-200 rounded-xl bg-blue-50/50 text-blue-400 mb-4">
+                        <Car size={32} className="mx-auto mb-2 opacity-50" />
+                        <p>No hay vehículos registrados.</p>
+                      </div>
+                    )
                   )}
 
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Dirección Física</label>
-                    <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 text-black text-sm md:text-base"
-                      value={newTp.address} onChange={e => setNewTp({ ...newTp, address: e.target.value })} placeholder="Provincia, Distrito, Corregimiento, Casa..." />
-                  </div>
+                  {/* Add Vehicle Sub-Form */}
+                  {showVehicleForm && (
+                    <div className="bg-white p-6 rounded-xl border-2 border-blue-400 shadow-xl animate-fade-in relative z-10">
+                      <h5 className="font-bold text-slate-800 mb-4 pb-2 border-b border-slate-100">Nuevo Vehículo</h5>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <input type="text" placeholder="Placa (Req)" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.plate} onChange={e => setTempVehicle({ ...tempVehicle, plate: e.target.value.toUpperCase() })} />
+                        <input type="text" placeholder="Marca (Req)" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.brand} onChange={e => setTempVehicle({ ...tempVehicle, brand: e.target.value })} />
+                        <input type="text" placeholder="Modelo" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.model} onChange={e => setTempVehicle({ ...tempVehicle, model: e.target.value })} />
+                        <input type="text" placeholder="Año" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.year} onChange={e => setTempVehicle({ ...tempVehicle, year: e.target.value })} />
+                        <input type="text" placeholder="Color" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.color} onChange={e => setTempVehicle({ ...tempVehicle, color: e.target.value })} />
+                        <input type="text" placeholder="Serial Motor" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors" value={tempVehicle.motorSerial} onChange={e => setTempVehicle({ ...tempVehicle, motorSerial: e.target.value })} />
+                        <input type="text" placeholder="Serial Chasis/VIN" className="p-3 border rounded-lg text-black bg-slate-50 focus:bg-white transition-colors md:col-span-2" value={tempVehicle.chassisSerial} onChange={e => setTempVehicle({ ...tempVehicle, chassisSerial: e.target.value })} />
+                      </div>
 
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono</label>
-                    <input type="text" className="w-full border border-slate-300 rounded-lg p-3 text-black text-sm md:text-base"
-                      value={newTp.phone} onChange={e => setNewTp({ ...newTp, phone: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico</label>
-                    <input type="email" className="w-full border border-slate-300 rounded-lg p-3 text-black text-sm md:text-base"
-                      value={newTp.email} onChange={e => setNewTp({ ...newTp, email: e.target.value })} />
-                  </div>
+                      <label className="flex items-center cursor-pointer mb-6 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                          checked={tempVehicle.hasTransferDocuments}
+                          onChange={(e) => setTempVehicle({ ...tempVehicle, hasTransferDocuments: e.target.checked })}
+                        />
+                        <span className="ml-3 text-slate-700 font-medium">Documentación de Propiedad / Traspaso en Regla</span>
+                      </label>
+
+                      <div className="flex gap-3">
+                        <button type="button" onClick={() => setShowVehicleForm(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200">Cancelar</button>
+                        <button type="button" onClick={handleAddVehicle} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-200">Guardar Vehículo</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                <hr className="border-slate-200" />
-
-                {/* SECTION 3: SERVICES & ASSETS (The "Meat" of the update) */}
-                <div>
-                  <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-                    <CheckSquare className="mr-2 text-emerald-600" /> Servicios y Activos
-                  </h4>
-
-                  <div className="space-y-6">
-
-                    {/* 3.1 COMMERCIAL ACTIVITY */}
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                      <div className="flex items-center justify-between mb-4">
-                        <label className="flex items-center cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
-                            checked={newTp.hasCommercialActivity}
-                            onChange={(e) => setNewTp({ ...newTp, hasCommercialActivity: e.target.checked })}
-                          />
-                          <span className="ml-3 font-bold text-slate-700 text-sm md:text-base">Registrar Actividad Comercial</span>
-                        </label>
-                        <Store className="text-indigo-400" />
-                      </div>
-
-                      {newTp.hasCommercialActivity && (
-                        <div className="pl-0 md:pl-8 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase">Nombre Comercial</label>
-                            <input type="text" className="w-full mt-1 p-2 border rounded text-black"
-                              value={newTp.commercialName} onChange={e => setNewTp({ ...newTp, commercialName: e.target.value })} placeholder="Ej. Mini Super El Chino" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase">Categoría</label>
-                            <select
-                              className="w-full mt-1 p-2 border rounded bg-white text-black"
-                              value={newTp.commercialCategory}
-                              onChange={e => setNewTp({ ...newTp, commercialCategory: e.target.value as CommercialCategory })}
-                            >
-                              <option value={CommercialCategory.NONE}>Seleccionar...</option>
-                              <option value={CommercialCategory.CLASE_A}>Clase A (Bancos, Supermercados)</option>
-                              <option value={CommercialCategory.CLASE_B}>Clase B (Tiendas, Farmacias)</option>
-                              <option value={CommercialCategory.CLASE_C}>Clase C (Kioscos, Buhonería)</option>
-                            </select>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 3.2 VEHICLES */}
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 gap-2">
-                        <span className="font-bold text-slate-700 flex items-center">
-                          <Car className="mr-2 text-blue-500" /> Parque Vehicular
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowVehicleForm(!showVehicleForm)}
-                          className="text-sm bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 font-medium w-full sm:w-auto"
-                        >
-                          {showVehicleForm ? 'Cancelar' : '+ Agregar Vehículo'}
-                        </button>
-                      </div>
-
-                      {/* List of added vehicles */}
-                      {newTp.vehicles && newTp.vehicles.length > 0 && (
-                        <div className="mb-4 space-y-2">
-                          {newTp.vehicles.map((v, idx) => (
-                            <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-slate-200 text-sm shadow-sm">
-                              <div className="flex flex-col sm:flex-row sm:items-center">
-                                <span className="font-bold text-slate-800">{v.brand} {v.model} ({v.year})</span>
-                                <span className="hidden sm:inline mx-2 text-slate-300">|</span>
-                                <span className="font-mono bg-slate-100 px-1 rounded text-xs">Placa: {v.plate}</span>
-                              </div>
-                              <button type="button" onClick={() => removeVehicle(v.plate)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={16} /></button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Add Vehicle Sub-Form */}
-                      {showVehicleForm && (
-                        <div className="bg-blue-50/50 p-3 md:p-4 rounded border border-blue-100 animate-fade-in">
-                          <h5 className="text-sm font-bold text-blue-800 mb-3 border-b border-blue-200 pb-1">Datos del Vehículo</h5>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                            <input type="text" placeholder="Placa (Req)" className="p-2 border rounded text-sm text-black" value={tempVehicle.plate} onChange={e => setTempVehicle({ ...tempVehicle, plate: e.target.value.toUpperCase() })} />
-                            <input type="text" placeholder="Marca (Req)" className="p-2 border rounded text-sm text-black" value={tempVehicle.brand} onChange={e => setTempVehicle({ ...tempVehicle, brand: e.target.value })} />
-                            <input type="text" placeholder="Modelo" className="p-2 border rounded text-sm text-black" value={tempVehicle.model} onChange={e => setTempVehicle({ ...tempVehicle, model: e.target.value })} />
-                            <input type="text" placeholder="Año" className="p-2 border rounded text-sm text-black" value={tempVehicle.year} onChange={e => setTempVehicle({ ...tempVehicle, year: e.target.value })} />
-                            <input type="text" placeholder="Color" className="p-2 border rounded text-sm text-black" value={tempVehicle.color} onChange={e => setTempVehicle({ ...tempVehicle, color: e.target.value })} />
-                            <input type="text" placeholder="Serial Motor" className="p-2 border rounded text-sm text-black" value={tempVehicle.motorSerial} onChange={e => setTempVehicle({ ...tempVehicle, motorSerial: e.target.value })} />
-                            <input type="text" placeholder="Serial Chasis/VIN" className="p-2 border rounded text-sm text-black md:col-span-2" value={tempVehicle.chassisSerial} onChange={e => setTempVehicle({ ...tempVehicle, chassisSerial: e.target.value })} />
-                          </div>
-
-                          <label className="flex items-center cursor-pointer mb-3 bg-white p-2 rounded border border-blue-100">
-                            <input
-                              type="checkbox"
-                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                              checked={tempVehicle.hasTransferDocuments}
-                              onChange={(e) => setTempVehicle({ ...tempVehicle, hasTransferDocuments: e.target.checked })}
-                            />
-                            <span className="ml-2 text-xs md:text-sm text-slate-700">Documentación de Propiedad / Traspaso en Regla</span>
-                          </label>
-
-                          <button type="button" onClick={handleAddVehicle} className="w-full bg-blue-600 text-white py-2.5 rounded text-sm font-bold hover:bg-blue-700 active:scale-95 transition-transform">Guardar Vehículo</button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 3.3 OTHER SERVICES */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Construction */}
-                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <label className="flex items-center cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
-                            checked={newTp.hasConstruction}
-                            onChange={(e) => setNewTp({ ...newTp, hasConstruction: e.target.checked })}
-                          />
-                          <div className="ml-3">
-                            <span className="block font-bold text-slate-700 text-sm">Permisos Construcción</span>
-                            <span className="text-xs text-slate-500">Obras civiles activas</span>
-                          </div>
-                        </label>
-                        <Hammer className="text-amber-400" />
-                      </div>
-
-                      {/* Garbage */}
-                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <label className="flex items-center cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500"
-                            checked={newTp.hasGarbageService}
-                            onChange={(e) => setNewTp({ ...newTp, hasGarbageService: e.target.checked })}
-                          />
-                          <div className="ml-3">
-                            <span className="block font-bold text-slate-700 text-sm">Recolección Basura</span>
-                            <span className="text-xs text-slate-500">Servicio activo</span>
-                          </div>
-                        </label>
-                        <Trash2 className="text-emerald-400" />
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-              </form>
-
-              <div className="p-4 md:p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 flex-shrink-0">
-                <button onClick={() => setShowModal(false)} className="flex-1 md:flex-none px-6 py-3 rounded-lg border border-slate-300 text-slate-600 font-bold hover:bg-white active:scale-95 transition-all">
-                  Cancelar
-                </button>
-                <button onClick={handleSubmit} className="flex-1 md:flex-none px-8 py-3 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 active:scale-95 transition-all">
-                  Guardar
-                </button>
               </div>
-
             </div>
-          </div>
-        )
-      }
+
+            {/* ACTIONS FOOTER */}
+            <div className="pt-6 border-t border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setNewTp(initialFormState)}
+                className="w-full md:w-auto px-8 py-4 rounded-xl border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 active:scale-95 transition-all"
+              >
+                Limpiar / Cancelar
+              </button>
+              <button type="submit" className="w-full md:w-auto px-10 py-4 rounded-xl bg-slate-900 text-white font-bold text-lg hover:bg-emerald-600 shadow-xl shadow-slate-200 hover:shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center">
+                <CheckCircle size={24} className="mr-2" />
+                Registrar Contribuyente
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
 
       {/* --- HISTORY MODAL --- */}
       {

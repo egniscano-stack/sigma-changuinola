@@ -14,7 +14,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavigate, onLogout, isOpen, onClose }) => {
   const allMenuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'AUDITOR'] },
-    { id: 'taxpayers', label: 'Contribuyentes', icon: Users, roles: ['ADMIN', 'CAJERO', 'AUDITOR'] },
+    { id: 'taxpayers', label: 'Contribuyentes', icon: Users, roles: ['ADMIN', 'CAJERO', 'AUDITOR', 'REGISTRO'] },
     // Split into Caja and Cobros
     { id: 'caja', label: 'Caja', icon: Banknote, roles: ['ADMIN', 'CAJERO'] },
     { id: 'cobros', label: 'Gestión de Cobros', icon: AlertCircle, roles: ['ADMIN', 'CAJERO', 'AUDITOR'] },
@@ -93,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
             <span>Cerrar Sesión</span>
           </button>
           <div className="mt-4 text-center">
-            <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : userRole === 'AUDITOR' ? 'Auditor' : 'Cajero'}</p>
+            <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : userRole === 'AUDITOR' ? 'Auditor' : userRole === 'REGISTRO' ? 'Oficial Registro' : 'Cajero'}</p>
           </div>
         </div>
       </div>

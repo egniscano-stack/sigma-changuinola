@@ -121,7 +121,7 @@ export interface ExtractedInvoiceData {
 }
 
 // Authentication Types
-export type UserRole = 'ADMIN' | 'CAJERO' | 'CONTRIBUYENTE' | 'AUDITOR';
+export type UserRole = 'ADMIN' | 'CAJERO' | 'CONTRIBUYENTE' | 'AUDITOR' | 'REGISTRO';
 
 export interface User {
   username: string;

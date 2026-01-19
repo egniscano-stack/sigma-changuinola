@@ -460,6 +460,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
                 >
                   <option value="CAJERO">Cajero (Cobros)</option>
+                  <option value="REGISTRO">Oficial de Registro (Trámites)</option>
                   <option value="ADMIN">Administrador (Total)</option>
                   <option value="AUDITOR">Auditor (Solo Lectura)</option>
                 </select>

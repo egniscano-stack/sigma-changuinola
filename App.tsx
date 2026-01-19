@@ -15,7 +15,7 @@ import { INITIAL_CONFIG } from './services/mockData';
 import { TaxpayerPortal } from './pages/TaxpayerPortal';
 import { Landing } from './pages/Landing'; // Import Landing
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus } from './types';
-import { Menu, ArrowLeft } from 'lucide-react';
+import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { db, mapTaxpayerFromDB, mapTransactionFromDB } from './services/db';
 
 // Initial Municipality Info
@@ -46,6 +46,10 @@ function App() {
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
 
+  // Offline Logic State
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingSyncTransactions, setPendingSyncTransactions] = useState<Transaction[]>([]);
+
   // Check navigation mode (Portal vs Admin vs Landing)
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
 
@@ -69,23 +73,33 @@ function App() {
         ]);
 
         if (usersData.length === 0) {
-          console.log("No users found. Seeding default admin...");
-          const defaultAdmin: User = {
-            username: 'admin',
-            password: 'admin123', // In a real app, hash this!
-            name: 'Administrador Default',
-            role: 'ADMIN'
-          };
+          console.log("No users found. Seeding default users...");
+          const defaultAdmin: User = { username: 'admin', password: 'admin123', name: 'Administrador Default', role: 'ADMIN' };
+          const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' };
+
           try {
             const createdAdmin = await db.createAppUser(defaultAdmin);
-            setRegisteredUsers([createdAdmin]);
+            const createdRegistro = await db.createAppUser(defaultRegistro);
+            setRegisteredUsers([createdAdmin, createdRegistro]);
           } catch (err) {
-            console.error("Failed to seed default admin:", err);
-            // Fallback for UI if DB insert fails (e.g. RLS blocks)
-            setRegisteredUsers([defaultAdmin]);
+            console.error("Failed to seed default users:", err);
+            setRegisteredUsers([defaultAdmin, defaultRegistro]);
           }
         } else {
-          setRegisteredUsers(usersData);
+          // Check if 'registro' exists, if not add it (Migration for existing dev setup)
+          const hasRegistro = usersData.find(u => u.username === 'registro');
+          if (!hasRegistro) {
+            const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' };
+            try {
+              const created = await db.createAppUser(defaultRegistro);
+              setRegisteredUsers([...usersData, created]);
+            } catch (e) {
+              console.error("Failed to seed registro user:", e);
+              setRegisteredUsers([...usersData, defaultRegistro]);
+            }
+          } else {
+            setRegisteredUsers(usersData);
+          }
         }
 
         setTaxpayers(taxpayersData);
@@ -99,6 +113,27 @@ function App() {
     };
 
     loadData();
+
+    // Check online status initially
+    // Check online status initially
+    setIsOnline(navigator.onLine);
+
+    // Online/Offline Listeners
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Initial load of offline transactions
+    try {
+      const savedOffline = localStorage.getItem('sigma_offline_txs');
+      if (savedOffline) {
+        setPendingSyncTransactions(JSON.parse(savedOffline));
+      }
+    } catch (e) {
+      console.error("Error loading offline txs", e);
+    }
 
     // Realtime Subscriptions
     const unsubscribe = db.subscribeToChanges(
@@ -124,6 +159,9 @@ function App() {
         if (payload.eventType === 'INSERT') {
           const newTx = mapTransactionFromDB(payload.new);
           setTransactions(prev => {
+            // Check if this incoming tx is one of our offline pending ones
+            // If so, we might want to remove it from pending (handled in sync function ideally)
+            // But here we just ensure we show it.
             if (prev.some(t => t.id === newTx.id)) return prev;
             return [newTx, ...prev]; // Newest first
           });
@@ -136,11 +174,55 @@ function App() {
 
     return () => {
       unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // State to handle passing taxpayer from Debts to Cashier
   const [selectedDebtTaxpayer, setSelectedDebtTaxpayer] = useState<Taxpayer | null>(null);
+
+  // Offline / Sync Logic
+  const handleSync = async () => {
+    if (pendingSyncTransactions.length === 0) return;
+    if (!isOnline) {
+      alert("No hay conexión a internet para sincronizar.");
+      return;
+    }
+
+    if (!confirm(`Se enviarán ${pendingSyncTransactions.length} transacciones a la base de datos. ¿Continuar?`)) return;
+
+    let successCount = 0;
+    const failedTxs: Transaction[] = [];
+
+    setIsLoading(true);
+
+    for (const tx of pendingSyncTransactions) {
+      try {
+        // We might need to map them or just send them.
+        // Important: Ideally generate a new ID or ensure the logic in DB accepts this ID.
+        // Our db.createTransaction service respects the ID passed if we modify it, 
+        // but currently it relies on the mapTransactionToDB which passes everything.
+        // Let's assume the ID generated offline (TX-TIMESTAMP) is fine for now, 
+        // OR let DB generate one and just track the success.
+
+        await db.createTransaction(tx);
+        successCount++;
+      } catch (e) {
+        console.error("Sync failed for tx:", tx.id, e);
+        failedTxs.push(tx);
+      }
+    }
+
+    setPendingSyncTransactions(failedTxs);
+    localStorage.setItem('sigma_offline_txs', JSON.stringify(failedTxs));
+    setIsLoading(false);
+
+    if (failedTxs.length === 0) {
+      alert("¡Sincronización completada exitosamente!");
+    } else {
+      alert(`Sincronización parcial. ${successCount} enviadas, ${failedTxs.length} fallidas.`);
+    }
+  };
 
   // Close sidebar automatically on route change if on mobile
   useEffect(() => {
@@ -268,14 +350,37 @@ function App() {
       metadata: paymentData.metadata
     };
 
-    db.createTransaction(newTransaction).then(savedTx => {
-      setTransactions(prev => [savedTx, ...prev]);
-    }).catch(e => {
-      console.error("Error saving transaction", e);
-      alert(`Error al guardar: ${e.message || e.details || 'Error desconocido'}`);
-    });
+    // Logic: Try Online, Fallback to Offline
+    if (isOnline) {
+      db.createTransaction(newTransaction).then(savedTx => {
+        // Success online: just add to view if not already via realtime
+        setTransactions(prev => {
+          if (prev.some(t => t.id === savedTx.id)) return prev;
+          return [savedTx, ...prev];
+        });
+      }).catch(e => {
+        console.error("Error saving transaction online", e);
+        // Fallback prompt
+        if (confirm("Falló la conexión al servidor. ¿Guardar transacción en modo 'Sin Conexión' para sincronizar después?")) {
+          saveOffline(newTransaction);
+        }
+      });
+    } else {
+      // Offline Mode
+      saveOffline(newTransaction);
+      alert("Transacción guardada localmente (Modo Offline). Recuerde sincronizar cuando tenga internet.");
+    }
 
     return newTransaction;
+  };
+
+  const saveOffline = (tx: Transaction) => {
+    const updatedPending = [...pendingSyncTransactions, tx];
+    setPendingSyncTransactions(updatedPending);
+    localStorage.setItem('sigma_offline_txs', JSON.stringify(updatedPending));
+
+    // Also show it in the main list temporarily as "Local"
+    setTransactions(prev => [tx, ...prev]);
   };
 
   const handleUpdateConfig = async (newConfig: TaxConfig) => {
@@ -422,6 +527,7 @@ function App() {
         return (
           <TaxCollection
             taxpayers={taxpayers}
+            transactions={transactions}
             config={config}
             onPayment={handlePayment}
             currentUser={user!}
@@ -445,7 +551,7 @@ function App() {
           />
         ) : null;
       case 'reports':
-        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} /> : null;
+        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} users={registeredUsers} currentUser={user} /> : null;
       case 'settings':
         return user?.role === 'ADMIN' ? (
           <Settings
@@ -567,6 +673,28 @@ function App() {
           </div>
 
           <div className="flex items-center space-x-2 md:space-x-4">
+
+            {/* Status Indicator & Sync Button */}
+            <div className="flex items-center mr-2 gap-3">
+              <div className="flex items-center">
+                {isOnline ? (
+                  <Wifi className="text-emerald-500 h-5 w-5" title="Conectado" />
+                ) : (
+                  <WifiOff className="text-red-500 h-5 w-5" title="Sin Conexión" />
+                )}
+              </div>
+
+              {pendingSyncTransactions.length > 0 && (
+                <button
+                  onClick={handleSync}
+                  className="ml-2 flex items-center gap-1 bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded-full text-xs font-bold transition-colors animate-pulse"
+                >
+                  <RefreshCw size={14} />
+                  <span>Sincronizar ({pendingSyncTransactions.length})</span>
+                </button>
+              )}
+            </div>
+
             <div className="text-right hidden sm:block">
               <p className="text-sm font-bold text-slate-700">{user.name}</p>
               <p className="text-[10px] text-emerald-600 uppercase">{user.role}</p>
