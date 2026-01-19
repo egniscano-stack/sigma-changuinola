@@ -4,7 +4,7 @@ import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, C
 
 // --- DATA MAPPING HELPERS (Snake_case DB <-> CamelCase App) ---
 
-const mapTaxpayerFromDB = (data: any): Taxpayer => ({
+export const mapTaxpayerFromDB = (data: any): Taxpayer => ({
     id: data.id,
     taxpayerNumber: data.taxpayer_number,
     type: data.type as TaxpayerType,
@@ -42,7 +42,7 @@ const mapTaxpayerToDB = (data: Taxpayer) => ({
     has_garbage_service: data.hasGarbageService
 });
 
-const mapTransactionFromDB = (data: any): Transaction => ({
+export const mapTransactionFromDB = (data: any): Transaction => ({
     id: data.id,
     taxpayerId: data.taxpayer_id,
     taxType: data.tax_type as TaxType,
@@ -166,5 +166,30 @@ export const db = {
         const { data, error } = await supabase.from('system_config').upsert({ id: 1, config }).select().single();
         if (error) throw error;
         return data.config;
+    },
+
+    // REALTIME SUBSCRIPTION
+    subscribeToChanges: (
+        onTaxpayerChange: (payload: any) => void,
+        onTransactionChange: (payload: any) => void
+    ) => {
+        const taxpayersSubscription = supabase
+            .channel('public:taxpayers')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'taxpayers' }, (payload) => {
+                onTaxpayerChange(payload);
+            })
+            .subscribe();
+
+        const transactionsSubscription = supabase
+            .channel('public:transactions')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
+                onTransactionChange(payload);
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(taxpayersSubscription);
+            supabase.removeChannel(transactionsSubscription);
+        };
     }
 };

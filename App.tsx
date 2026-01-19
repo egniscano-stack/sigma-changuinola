@@ -16,7 +16,7 @@ import { TaxpayerPortal } from './pages/TaxpayerPortal';
 import { Landing } from './pages/Landing'; // Import Landing
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus } from './types';
 import { Menu, ArrowLeft } from 'lucide-react';
-import { db } from './services/db';
+import { db, mapTaxpayerFromDB, mapTransactionFromDB } from './services/db';
 
 // Initial Municipality Info
 const INITIAL_MUNICIPALITY_INFO: MunicipalityInfo = {
@@ -99,6 +99,44 @@ function App() {
     };
 
     loadData();
+
+    // Realtime Subscriptions
+    const unsubscribe = db.subscribeToChanges(
+      // Taxpayers Changes
+      (payload) => {
+        console.log("Realtime Taxpayer Update:", payload);
+        if (payload.eventType === 'INSERT') {
+          const newTp = mapTaxpayerFromDB(payload.new);
+          setTaxpayers(prev => {
+            if (prev.some(t => t.id === newTp.id)) return prev;
+            return [...prev, newTp];
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedTp = mapTaxpayerFromDB(payload.new);
+          setTaxpayers(prev => prev.map(t => t.id === updatedTp.id ? updatedTp : t));
+        } else if (payload.eventType === 'DELETE') {
+          setTaxpayers(prev => prev.filter(t => t.id !== payload.old.id));
+        }
+      },
+      // Transactions Changes
+      (payload) => {
+        console.log("Realtime Transaction Update:", payload);
+        if (payload.eventType === 'INSERT') {
+          const newTx = mapTransactionFromDB(payload.new);
+          setTransactions(prev => {
+            if (prev.some(t => t.id === newTx.id)) return prev;
+            return [newTx, ...prev]; // Newest first
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedTx = mapTransactionFromDB(payload.new);
+          setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   // State to handle passing taxpayer from Debts to Cashier
