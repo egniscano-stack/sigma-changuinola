@@ -1,13 +1,12 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Load env vars
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Hardcoded credentials for immediate stability
+const supabaseUrl = 'https://qxmugkwcsxwxrwjshumg.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4bXVna3djc3h3eHJ3anNodW1nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4MzkzOTksImV4cCI6MjA3MjQxNTM5OX0.Pu-0O7HjUqdO3quZeuIMTWi2Nxtbd0DGxT_cAYr1DjA';
 
 if (!supabaseUrl || !supabaseAnonKey) {
-    // If keys are missing, we'll log a warning but the app might fail if it tries to use them.
-    console.warn("Supabase keys are missing in environment variables. Check .env.local");
+    console.warn("Supabase keys are missing.");
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
