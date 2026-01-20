@@ -660,7 +660,6 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                       };
                       onCreateRequest(req);
                       setShowRequestModal(false);
-                      alert("Solicitud enviada al Administrador.");
                       setNewRequestDesc('');
                       setNewRequestAmount(0);
                       setRequestTargetId('');
@@ -676,33 +675,72 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
         </div>
       )}
 
-      {/* --- APPROVED REQUESTS LIST (Mini Dashboard for Cashier) --- */}
-      {adminRequests.some(r => r.status === 'APPROVED' && r.type === 'PAYMENT_ARRANGEMENT' && !r.responseNote?.includes('PROCESADO')) && (
+      {/* --- CASHIER NOTIFICATIONS / REQUEST STATUS --- */}
+      {adminRequests.length > 0 && (
         <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
-          <div className="bg-emerald-50 border border-emerald-200 shadow-xl rounded-lg p-4 animate-slide-up">
-            <div className="flex justify-between items-center mb-2">
-              <h4 className="font-bold text-emerald-800 flex items-center"><CheckCircle size={16} className="mr-2" /> Aprobaciones Listas</h4>
-              <button onClick={() => {/* Dismiss logic */ }} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button>
+          <div className="bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden flex flex-col max-h-[500px]">
+            <div className="bg-slate-800 text-white p-3 flex justify-between items-center cursor-pointer" onClick={() => {/* Toggle collapse could go here */ }}>
+              <h4 className="font-bold text-sm flex items-center">
+                <Banknote className="mr-2" size={16} /> Estado de Solicitudes
+              </h4>
+              <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.length}</span>
             </div>
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {adminRequests.filter(r => r.status === 'APPROVED' && r.type === 'PAYMENT_ARRANGEMENT' && !r.responseNote?.includes('PROCESADO')).map(req => (
-                <div key={req.id} className="bg-white p-2 rounded shadow-sm text-sm border border-emerald-100">
-                  <p className="font-bold text-emerald-700">{req.taxpayerName}</p>
-                  <p className="text-xs text-slate-500">Monto: B/.{req.approvedAmount?.toFixed(2)} (Inicial)</p>
-                  <button
-                    onClick={() => {
-                      // Load logic
-                      setLoadedArrangement(req);
-                      const tp = taxpayers.find(t => t.name === req.taxpayerName); // Weak match but ok for demo
-                      if (tp) setSelectedTaxpayerId(tp.id);
-                      setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any); // Force cast for now or update type import
-                      // We need to auto-calculate the total
-                      alert(`Cargando Arreglo de Pago Aprobado.\nTotal: B/.${req.approvedTotalDebt}\nAbono Inicial: B/.${req.approvedAmount}\nLetras: ${req.installments}`);
-                    }}
-                    className="mt-1 w-full text-xs bg-emerald-100 text-emerald-700 py-1 rounded hover:bg-emerald-200 font-bold"
-                  >
-                    Cargar Cobro
-                  </button>
+
+            <div className="p-2 bg-slate-50 overflow-y-auto space-y-2">
+              {[...adminRequests].reverse().map(req => (
+                <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
+                    req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
+                  }`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                      {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
+                    </span>
+                    <span className={`text-[10px] font-bold ${req.status === 'APPROVED' ? 'text-emerald-600' :
+                        req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
+                      }`}>
+                      {req.status === 'PENDING' ? 'EN ESPERA' : req.status}
+                    </span>
+                  </div>
+                  <p className="font-bold text-slate-700 truncate">{req.taxpayerName}</p>
+
+                  {/* APPROVED ACTIONS */}
+                  {req.status === 'APPROVED' && (
+                    <div className="mt-2 animate-fade-in">
+                      <p className="text-xs text-emerald-700 mb-2 font-medium">{req.responseNote || 'Solicitud Aprobada'}</p>
+                      {req.type === 'PAYMENT_ARRANGEMENT' ? (
+                        <button
+                          onClick={() => {
+                            setLoadedArrangement(req);
+                            const tp = taxpayers.find(t => t.name === req.taxpayerName);
+                            if (tp) setSelectedTaxpayerId(tp.id);
+                            setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
+                            alert(`CARGANDO ARREGLO DE PAGO\n-------------------------\nAbono Inicial: B/. ${req.approvedAmount?.toFixed(2)}\nLetras: ${req.installments}\nTotal Deuda: B/. ${req.approvedTotalDebt?.toFixed(2)}`);
+                          }}
+                          className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded hover:bg-emerald-700 shadow-sm"
+                        >
+                          CARGAR COBRO
+                        </button>
+                      ) : (
+                        <div className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded text-center font-bold">
+                          ANULACIÓN AUTORIZADA
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* REJECTED REASON */}
+                  {req.status === 'REJECTED' && (
+                    <div className="mt-2 bg-red-100 text-red-800 text-xs p-2 rounded">
+                      <p className="font-bold mb-1">Rechazado por Admin:</p>
+                      <p>"{req.responseNote}"</p>
+                    </div>
+                  )}
+
+                  {/* PENDING INFO */}
+                  {req.status === 'PENDING' && (
+                    <p className="text-xs text-slate-400 mt-1 italic">Esperando respuesta del administrador...</p>
+                  )}
                 </div>
               ))}
             </div>

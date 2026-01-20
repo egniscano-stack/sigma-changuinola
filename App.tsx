@@ -738,54 +738,125 @@ function App() {
 
       {/* --- ADMIN REQUEST REVIEW MODAL --- */}
       {showRequestsModal && user.role === 'ADMIN' && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
-            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-              <h3 className="text-lg font-bold flex items-center">
-                <Bell className="mr-2" size={20} /> Solicitudes de Autorización
-              </h3>
-              <button onClick={() => setShowRequestsModal(false)} className="text-slate-400 hover:text-white">
-                <ArrowLeft size={24} />
-              </button>
-            </div>
+        <AdminRequestModal
+          requests={adminRequests}
+          updateRequests={setAdminRequests}
+          onClose={() => setShowRequestsModal(false)}
+        />
+      )}
+    </div>
+  );
+}
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-              {adminRequests.length === 0 ? (
-                <div className="text-center py-10 text-slate-400">No hay solicitudes registradas.</div>
-              ) : (
-                [...adminRequests].reverse().map(req => (
-                  <div key={req.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${req.status === 'PENDING' ? 'border-amber-500' :
-                    req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
+// Sub-component for Admin Modal to handle internal state cleanly
+const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: AdminRequest[], updateRequests: (r: AdminRequest[]) => void, onClose: () => void }) => {
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  const handleApprove = (req: AdminRequest, initial?: number, installments?: number) => {
+    const updated = requests.map(r => r.id === req.id ? {
+      ...r,
+      status: 'APPROVED' as RequestStatus,
+      approvedAmount: initial,
+      approvedTotalDebt: req.totalDebt,
+      installments: installments,
+      responseNote: 'Aprobado'
+    } : r);
+    updateRequests(updated);
+  };
+
+  const handleReject = () => {
+    if (!rejectingId) return;
+    const updated = requests.map(r => r.id === rejectingId ? {
+      ...r,
+      status: 'REJECTED' as RequestStatus,
+      responseNote: rejectionReason || 'Rechazado sin motivo específico'
+    } : r);
+    updateRequests(updated);
+    setRejectingId(null);
+    setRejectionReason('');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
+        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+          <h3 className="text-lg font-bold flex items-center">
+            <Bell className="mr-2" size={20} /> Solicitudes de Autorización
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <ArrowLeft size={24} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+          {requests.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">No hay solicitudes registradas.</div>
+          ) : (
+            [...requests].reverse().map(req => (
+              <div key={req.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${req.status === 'PENDING' ? 'border-amber-500' :
+                  req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
+                }`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                      {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : 'ARREGLO DE PAGO'}
+                    </span>
+                    <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
+                  </div>
+                  <span className={`text-xs font-bold ${req.status === 'PENDING' ? 'text-amber-500' :
+                      req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
                     }`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
-                          {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : 'ARREGLO DE PAGO'}
-                        </span>
-                        <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
+                    {req.status === 'PENDING' ? 'PENDIENTE' : req.status === 'APPROVED' ? 'APROBADO' : 'RECHAZADO'}
+                  </span>
+                </div>
+
+                <h4 className="font-bold text-slate-800">{req.taxpayerName}</h4>
+                <div className="bg-slate-50 p-2 rounded mt-2 text-sm border border-slate-100">
+                  <p className="font-semibold text-slate-600 mb-1">Detalle de Solicitud:</p>
+                  <p className="text-slate-800"><span className="font-bold">{req.requesterName}:</span> {req.description}</p>
+                  {req.transactionId && <p className="text-xs font-mono text-slate-500 mt-1">Ref: {req.transactionId}</p>}
+                </div>
+
+                {req.totalDebt && (
+                  <div className="mt-2 text-sm bg-blue-50 p-2 rounded text-blue-800">
+                    <span className="font-bold">Deuda Total a Negociar: B/. {req.totalDebt.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {/* Actions if Pending */}
+                {req.status === 'PENDING' && (
+                  <div className="mt-4 pt-3 border-t border-slate-100">
+                    {/* Rejection Form for this specific item */}
+                    {rejectingId === req.id ? (
+                      <div className="bg-red-50 p-3 rounded-lg animate-fade-in">
+                        <label className="block text-xs font-bold text-red-700 mb-1">Motivo del Rechazo:</label>
+                        <textarea
+                          className="w-full text-sm p-2 border border-red-200 rounded mb-2 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                          placeholder="Indique por qué rechaza esta solicitud..."
+                          value={rejectionReason}
+                          onChange={(e) => setRejectionReason(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleReject}
+                            className="flex-1 bg-red-600 text-white py-1 rounded text-xs font-bold hover:bg-red-700"
+                          >
+                            Confirmar Rechazo
+                          </button>
+                          <button
+                            onClick={() => { setRejectingId(null); setRejectionReason(''); }}
+                            className="flex-1 bg-white text-slate-600 border border-slate-300 py-1 rounded text-xs font-bold hover:bg-slate-50"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
                       </div>
-                      <span className={`text-xs font-bold ${req.status === 'PENDING' ? 'text-amber-500' :
-                        req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
-                        }`}>
-                        {req.status}
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-slate-800">{req.taxpayerName}</h4>
-                    <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-semibold">{req.requesterName}:</span> {req.description}
-                    </p>
-
-                    {req.totalDebt && (
-                      <div className="mt-2 text-sm bg-slate-50 p-2 rounded">
-                        <span className="font-bold text-slate-700">Deuda Total: B/. {req.totalDebt.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    {/* Actions if Pending */}
-                    {req.status === 'PENDING' && (
-                      <div className="mt-4 pt-3 border-t border-slate-100">
+                    ) : (
+                      // Normal Action Buttons
+                      <>
                         {req.type === 'PAYMENT_ARRANGEMENT' ? (
                           <div className="space-y-3">
                             <p className="text-xs font-bold text-slate-500 uppercase">Configurar Acuerdo</p>
@@ -808,29 +879,17 @@ function App() {
                                 onClick={() => {
                                   const initial = parseFloat((document.getElementById(`approve-initial-${req.id}`) as HTMLInputElement).value) || 0;
                                   const installments = parseInt((document.getElementById(`approve-installments-${req.id}`) as HTMLInputElement).value) || 12;
-
-                                  const updated = adminRequests.map(r => r.id === req.id ? {
-                                    ...r,
-                                    status: 'APPROVED' as RequestStatus,
-                                    approvedAmount: initial,
-                                    approvedTotalDebt: req.totalDebt,
-                                    installments: installments,
-                                    responseNote: `Aprobado por ${user?.name}`
-                                  } : r);
-                                  setAdminRequests(updated);
+                                  handleApprove(req, initial, installments);
                                 }}
-                                className="flex-1 bg-emerald-600 text-white py-2 rounded font-bold text-xs hover:bg-emerald-700"
+                                className="flex-1 bg-emerald-600 text-white py-2 rounded font-bold text-xs hover:bg-emerald-700 flex items-center justify-center"
                               >
-                                <CheckCircle size={14} className="inline mr-1" /> Aprobar Arreglo
+                                <CheckCircle size={14} className="mr-1" /> Aprobar
                               </button>
                               <button
-                                onClick={() => {
-                                  const updated = adminRequests.map(r => r.id === req.id ? { ...r, status: 'REJECTED' as RequestStatus } : r);
-                                  setAdminRequests(updated);
-                                }}
-                                className="flex-1 bg-slate-200 text-slate-600 py-2 rounded font-bold text-xs hover:bg-slate-300"
+                                onClick={() => setRejectingId(req.id)}
+                                className="flex-1 bg-slate-100 text-slate-600 py-2 rounded font-bold text-xs hover:bg-slate-200 border border-slate-200 flex items-center justify-center"
                               >
-                                <XCircle size={14} className="inline mr-1" /> Rechazar
+                                <XCircle size={14} className="mr-1" /> Rechazar
                               </button>
                             </div>
                           </div>
@@ -839,49 +898,48 @@ function App() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => {
-                                // Logic to effectively void (in real app would update transaction status too)
-                                const updated = adminRequests.map(r => r.id === req.id ? { ...r, status: 'APPROVED' as RequestStatus } : r);
-                                setAdminRequests(updated);
-                                alert("Solicitud aprobada. El cajero verá la autorización.");
+                                const updated = requests.map(r => r.id === req.id ? { ...r, status: 'APPROVED' as RequestStatus, responseNote: 'Anulación Autorizada' } : r);
+                                updateRequests(updated);
                               }}
-                              className="flex-1 bg-red-600 text-white py-2 rounded font-bold text-xs hover:bg-red-700"
+                              className="flex-1 bg-red-600 text-white py-2 rounded font-bold text-xs hover:bg-red-700 flex items-center justify-center"
                             >
-                              Autorizar Anulación
+                              <CheckCircle size={14} className="mr-1" /> Autorizar Anulación
                             </button>
                             <button
-                              onClick={() => {
-                                const updated = adminRequests.map(r => r.id === req.id ? { ...r, status: 'REJECTED' as RequestStatus } : r);
-                                setAdminRequests(updated);
-                              }}
-                              className="bg-slate-200 text-slate-600 px-4 py-2 rounded font-bold text-xs hover:bg-slate-300"
+                              onClick={() => setRejectingId(req.id)}
+                              className="bg-slate-100 text-slate-600 px-4 py-2 rounded font-bold text-xs hover:bg-slate-200 border border-slate-200 flex items-center justify-center"
                             >
-                              Rechazar
+                              <XCircle size={14} className="mr-1" /> Rechazar
                             </button>
                           </div>
                         )}
-                      </div>
+                      </>
                     )}
+                  </div>
+                )}
 
-                    {/* View Response if Processed */}
-                    {req.status !== 'PENDING' && (
-                      <div className="mt-2 bg-slate-50 p-2 text-xs text-slate-500 rounded border border-slate-200">
-                        <span className="font-bold">Resolución:</span> {req.responseNote || 'Procesado'}
-                        {req.type === 'PAYMENT_ARRANGEMENT' && req.status === 'APPROVED' && (
-                          <div className="mt-1 font-mono">
-                            Abono: B/.{req.approvedAmount?.toFixed(2)} | Letras: {req.installments}
-                          </div>
-                        )}
+                {/* View Response if Processed */}
+                {req.status !== 'PENDING' && (
+                  <div className={`mt-2 p-2 text-xs rounded border ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
+                    }`}>
+                    <p className="font-bold flex items-center">
+                      {req.status === 'APPROVED' ? <CheckCircle size={12} className="mr-1" /> : <XCircle size={12} className="mr-1" />}
+                      Resolución: {req.responseNote}
+                    </p>
+                    {req.type === 'PAYMENT_ARRANGEMENT' && req.status === 'APPROVED' && (
+                      <div className="mt-1 font-mono ml-4">
+                        Abono: B/.{req.approvedAmount?.toFixed(2)} | Letras: {req.installments}
                       </div>
                     )}
                   </div>
-                ))
-              )}
-            </div>
-          </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
-}
+};
 
 export default App;
