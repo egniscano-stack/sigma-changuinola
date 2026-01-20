@@ -30,6 +30,7 @@ export enum PaymentMethod {
   TARJETA = 'TARJETA',
   CHEQUE = 'CHEQUE',
   ONLINE = 'ONLINE', // Payment via Portal
+  ARREGLO_PAGO = 'ARREGLO_PAGO', // New for Special Arrangement
 }
 
 export interface VehicleInfo {
@@ -84,7 +85,7 @@ export interface Transaction {
   status: 'PAGADO' | 'PENDIENTE' | 'ANULADO';
   paymentMethod: PaymentMethod;
   tellerName: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, any>; // Can store arrangement details here
 }
 
 export interface TaxConfig {
@@ -128,4 +129,32 @@ export interface User {
   name: string;
   role: UserRole;
   password?: string; // Included for demo purposes to allow creating users
+}
+
+// --- ADMIN REQUESTS (For Void / Arrangement) ---
+export type RequestType = 'VOID_TRANSACTION' | 'PAYMENT_ARRANGEMENT';
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface AdminRequest {
+  id: string;
+  type: RequestType;
+  status: RequestStatus;
+  requesterName: string;
+  taxpayerName: string; // Context
+
+  description: string; // Reason
+
+  // For VOID
+  transactionId?: string;
+
+  // For ARRANGEMENT
+  totalDebt?: number;
+
+  // Admin Response
+  responseNote?: string;
+  approvedAmount?: number; // The amount to pay NOW
+  approvedTotalDebt?: number; // Total agreed debt
+  installments?: number; // Number of payments
+
+  createdAt: string;
 }

@@ -12,9 +12,14 @@ interface TaxCollectionProps {
   currentUser: User;
   municipalityInfo: MunicipalityInfo;
   initialTaxpayer?: Taxpayer | null; // Optional prop to pre-fill
-}
 
-export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer }) => {
+  // New props for Requests
+  adminRequests?: AdminRequest[];
+  onCreateRequest?: (req: AdminRequest) => void;
+}
+import { AdminRequest, RequestType } from '../types';
+
+export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest }) => {
   const [selectedTax, setSelectedTax] = useState<TaxType>(TaxType.VEHICULO);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -32,6 +37,16 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Request Management State
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [newRequestType, setNewRequestType] = useState<RequestType>('VOID_TRANSACTION');
+  const [newRequestDesc, setNewRequestDesc] = useState('');
+  const [newRequestAmount, setNewRequestAmount] = useState(0); // For Arrangement Debt
+  const [requestTargetId, setRequestTargetId] = useState(''); // Transaction ID for void
+
+  // Logic to load Approved Arrangement
+  const [loadedArrangement, setLoadedArrangement] = useState<AdminRequest | null>(null);
 
   // Pre-fill from props if available
   useEffect(() => {
@@ -555,8 +570,146 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
           >
             COBRAR AHORA
           </button>
+
+          <button
+            type="button"
+            onClick={() => setShowRequestModal(true)}
+            className="w-full py-3 rounded-lg bg-slate-200 text-slate-700 font-bold hover:bg-slate-300 transition-all text-sm mt-3 border border-slate-300"
+          >
+            SOLICITAR AUTORIZACIÓN / DESCOBRO
+          </button>
         </form>
       </div>
+
+      {/* --- REQUEST AUTHORIZATION MODAL --- */}
+      {showRequestModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-scale-up">
+            <h3 className="text-xl font-bold text-slate-800 mb-4">Solicitar Autorización Administrativa</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Tipo de Solicitud</label>
+                <select
+                  className="w-full border rounded p-2"
+                  value={newRequestType}
+                  onChange={(e) => setNewRequestType(e.target.value as RequestType)}
+                >
+                  <option value="VOID_TRANSACTION">Anulación / Descobro</option>
+                  <option value="PAYMENT_ARRANGEMENT">Arreglo de Pago</option>
+                </select>
+              </div>
+
+              {newRequestType === 'VOID_TRANSACTION' && (
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">ID de Transacción (Recibo)</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded p-2"
+                    placeholder="Ej. TX-123456"
+                    value={requestTargetId}
+                    onChange={(e) => setRequestTargetId(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {newRequestType === 'PAYMENT_ARRANGEMENT' && (
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Monto Total de la Deuda</label>
+                  <input
+                    type="number"
+                    className="w-full border rounded p-2"
+                    placeholder="0.00"
+                    value={newRequestAmount}
+                    onChange={(e) => setNewRequestAmount(parseFloat(e.target.value))}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Motivo / Descripción</label>
+                <textarea
+                  className="w-full border rounded p-2 h-24"
+                  placeholder="Explique la razón de la solicitud..."
+                  value={newRequestDesc}
+                  onChange={(e) => setNewRequestDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowRequestModal(false)}
+                  className="flex-1 bg-slate-100 text-slate-700 py-2 rounded hover:bg-slate-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    if (onCreateRequest) {
+                      const selectedTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
+                      const req: AdminRequest = {
+                        id: `REQ-${Date.now()}`,
+                        type: newRequestType,
+                        status: 'PENDING',
+                        requesterName: currentUser.name || 'Cajero',
+                        taxpayerName: selectedTaxpayer?.name || 'Desconocido',
+                        description: newRequestDesc,
+                        transactionId: requestTargetId,
+                        totalDebt: newRequestType === 'PAYMENT_ARRANGEMENT' ? newRequestAmount : undefined,
+                        createdAt: new Date().toISOString()
+                      };
+                      onCreateRequest(req);
+                      setShowRequestModal(false);
+                      alert("Solicitud enviada al Administrador.");
+                      setNewRequestDesc('');
+                      setNewRequestAmount(0);
+                      setRequestTargetId('');
+                    }
+                  }}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+                >
+                  Enviar Solicitud
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- APPROVED REQUESTS LIST (Mini Dashboard for Cashier) --- */}
+      {adminRequests.some(r => r.status === 'APPROVED' && r.type === 'PAYMENT_ARRANGEMENT' && !r.responseNote?.includes('PROCESADO')) && (
+        <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
+          <div className="bg-emerald-50 border border-emerald-200 shadow-xl rounded-lg p-4 animate-slide-up">
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="font-bold text-emerald-800 flex items-center"><CheckCircle size={16} className="mr-2" /> Aprobaciones Listas</h4>
+              <button onClick={() => {/* Dismiss logic */ }} className="text-emerald-400 hover:text-emerald-700"><X size={16} /></button>
+            </div>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {adminRequests.filter(r => r.status === 'APPROVED' && r.type === 'PAYMENT_ARRANGEMENT' && !r.responseNote?.includes('PROCESADO')).map(req => (
+                <div key={req.id} className="bg-white p-2 rounded shadow-sm text-sm border border-emerald-100">
+                  <p className="font-bold text-emerald-700">{req.taxpayerName}</p>
+                  <p className="text-xs text-slate-500">Monto: B/.{req.approvedAmount?.toFixed(2)} (Inicial)</p>
+                  <button
+                    onClick={() => {
+                      // Load logic
+                      setLoadedArrangement(req);
+                      const tp = taxpayers.find(t => t.name === req.taxpayerName); // Weak match but ok for demo
+                      if (tp) setSelectedTaxpayerId(tp.id);
+                      setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any); // Force cast for now or update type import
+                      // We need to auto-calculate the total
+                      alert(`Cargando Arreglo de Pago Aprobado.\nTotal: B/.${req.approvedTotalDebt}\nAbono Inicial: B/.${req.approvedAmount}\nLetras: ${req.installments}`);
+                    }}
+                    className="mt-1 w-full text-xs bg-emerald-100 text-emerald-700 py-1 rounded hover:bg-emerald-200 font-bold"
+                  >
+                    Cargar Cobro
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
