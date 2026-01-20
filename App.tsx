@@ -742,6 +742,8 @@ function App() {
           requests={adminRequests}
           updateRequests={setAdminRequests}
           onClose={() => setShowRequestsModal(false)}
+          allTransactions={transactions}
+          updateTransactions={setTransactions}
         />
       )}
     </div>
@@ -749,7 +751,13 @@ function App() {
 }
 
 // Sub-component for Admin Modal to handle internal state cleanly
-const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: AdminRequest[], updateRequests: (r: AdminRequest[]) => void, onClose: () => void }) => {
+const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions, updateTransactions }: {
+  requests: AdminRequest[],
+  updateRequests: (r: AdminRequest[]) => void,
+  onClose: () => void,
+  allTransactions: Transaction[],
+  updateTransactions: (t: Transaction[]) => void
+}) => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
@@ -763,6 +771,24 @@ const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: Ad
       responseNote: 'Aprobado'
     } : r);
     updateRequests(updated);
+  };
+
+  const handleVoidTransaction = (req: AdminRequest) => {
+    // 1. Update Request
+    const updatedReqs = requests.map(r => r.id === req.id ? { ...r, status: 'APPROVED' as RequestStatus, responseNote: 'Anulación Autorizada y Procesada' } : r);
+    updateRequests(updatedReqs);
+
+    // 2. Void Transaction if ID exists
+    if (req.transactionId) {
+      const txExists = allTransactions.find(t => t.id === req.transactionId);
+      if (txExists) {
+        const updatedTxs = allTransactions.map(t => t.id === req.transactionId ? { ...t, status: 'ANULADO' as 'ANULADO' } : t);
+        updateTransactions(updatedTxs);
+        // alert(`Transacción #${req.transactionId} marcada como ANULADA.`);
+      } else {
+        alert(`Advertencia: La transacción #${req.transactionId} no se encontró en el historial, pero la solicitud fue aprobada.`);
+      }
+    }
   };
 
   const handleReject = () => {
@@ -795,7 +821,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: Ad
           ) : (
             [...requests].reverse().map(req => (
               <div key={req.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${req.status === 'PENDING' ? 'border-amber-500' :
-                  req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
+                req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
                 }`}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
@@ -806,7 +832,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: Ad
                     <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
                   </div>
                   <span className={`text-xs font-bold ${req.status === 'PENDING' ? 'text-amber-500' :
-                      req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
+                    req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
                     }`}>
                     {req.status === 'PENDING' ? 'PENDIENTE' : req.status === 'APPROVED' ? 'APROBADO' : 'RECHAZADO'}
                   </span>
@@ -897,10 +923,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose }: { requests: Ad
                           // VOID Logic
                           <div className="flex gap-2">
                             <button
-                              onClick={() => {
-                                const updated = requests.map(r => r.id === req.id ? { ...r, status: 'APPROVED' as RequestStatus, responseNote: 'Anulación Autorizada' } : r);
-                                updateRequests(updated);
-                              }}
+                              onClick={() => handleVoidTransaction(req)}
                               className="flex-1 bg-red-600 text-white py-2 rounded font-bold text-xs hover:bg-red-700 flex items-center justify-center"
                             >
                               <CheckCircle size={14} className="mr-1" /> Autorizar Anulación
