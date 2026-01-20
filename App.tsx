@@ -530,16 +530,16 @@ function App() {
       case 'caja':
         return (
           <TaxCollection
+            user={user}
+            currentUser={user} // Pass as currentUser to match props
             taxpayers={taxpayers}
             transactions={transactions}
             config={config}
             onPayment={handlePayment}
-            currentUser={user!}
             municipalityInfo={municipalityInfo}
-            initialTaxpayer={selectedDebtTaxpayer}
-            // Admin Request Props
             adminRequests={adminRequests}
-            onCreateRequest={(req) => setAdminRequests([...adminRequests, req])}
+            onCreateRequest={(req) => setAdminRequests(prev => [...prev, req])}
+            onUpdateRequest={setAdminRequests}
           />
         );
       case 'cobros':

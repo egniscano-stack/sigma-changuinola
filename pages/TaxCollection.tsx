@@ -16,10 +16,11 @@ interface TaxCollectionProps {
   // New props for Requests
   adminRequests?: AdminRequest[];
   onCreateRequest?: (req: AdminRequest) => void;
+  onUpdateRequest?: (requests: AdminRequest[]) => void;
 }
 import { AdminRequest, RequestType } from '../types';
 
-export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest }) => {
+export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest, onUpdateRequest }) => {
   const [selectedTax, setSelectedTax] = useState<TaxType>(TaxType.VEHICULO);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -676,28 +677,43 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       )}
 
       {/* --- CASHIER NOTIFICATIONS / REQUEST STATUS --- */}
-      {adminRequests.length > 0 && (
+      {adminRequests.filter(r => r.status !== 'ARCHIVED').length > 0 && (
         <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
           <div className="bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden flex flex-col max-h-[500px]">
             <div className="bg-slate-800 text-white p-3 flex justify-between items-center cursor-pointer" onClick={() => {/* Toggle collapse could go here */ }}>
               <h4 className="font-bold text-sm flex items-center">
                 <Banknote className="mr-2" size={16} /> Estado de Solicitudes
               </h4>
-              <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.length}</span>
+              <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.filter(r => r.status !== 'ARCHIVED').length}</span>
             </div>
 
             <div className="p-2 bg-slate-50 overflow-y-auto space-y-2">
-              {[...adminRequests].reverse().map(req => (
-                <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
-                    req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
+              {[...adminRequests].filter(r => r.status !== 'ARCHIVED').reverse().map(req => (
+                <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm relative group ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
+                  req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
                   }`}>
-                  <div className="flex justify-between items-start mb-1">
+                  {/* DISMISS BUTTON FOR PROCESSED REQUESTS */}
+                  {req.status !== 'PENDING' && (
+                    <button
+                      onClick={() => {
+                        if (onUpdateRequest) {
+                          onUpdateRequest(adminRequests.map(r => r.id === req.id ? { ...r, status: 'ARCHIVED' as any } : r)); // Cast to any or update type if possible, or just filter locally if no persist
+                        }
+                      }}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
+                      title="Ocultar notificación"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+
+                  <div className="flex justify-between items-start mb-1 pr-6">
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
                       }`}>
                       {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
                     </span>
                     <span className={`text-[10px] font-bold ${req.status === 'APPROVED' ? 'text-emerald-600' :
-                        req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
+                      req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
                       }`}>
                       {req.status === 'PENDING' ? 'EN ESPERA' : req.status}
                     </span>
@@ -716,6 +732,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                             if (tp) setSelectedTaxpayerId(tp.id);
                             setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
                             alert(`CARGANDO ARREGLO DE PAGO\n-------------------------\nAbono Inicial: B/. ${req.approvedAmount?.toFixed(2)}\nLetras: ${req.installments}\nTotal Deuda: B/. ${req.approvedTotalDebt?.toFixed(2)}`);
+                            // Auto-dismiss after loading? Maybe not, let user dismiss.
                           }}
                           className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded hover:bg-emerald-700 shadow-sm"
                         >
