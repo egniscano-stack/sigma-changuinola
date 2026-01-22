@@ -294,7 +294,17 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
                                     {msg.attachment_url && (
                                         <div className="mt-2 mb-1">
                                             {msg.attachment_type === 'image' ? (
-                                                <img src={msg.attachment_url} alt="adjunto" className="rounded-lg max-h-40 object-cover border border-slate-200" />
+                                                <div className="relative group inline-block">
+                                                    <img src={msg.attachment_url} alt="adjunto" className="rounded-lg max-h-40 object-cover border border-slate-200" />
+                                                    <a
+                                                        href={msg.attachment_url}
+                                                        download={`imagen_${msg.id.slice(0, 5)}.png`}
+                                                        className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm shadow-sm"
+                                                        title="Descargar Imagen"
+                                                    >
+                                                        <Download size={16} />
+                                                    </a>
+                                                </div>
                                             ) : (
                                                 <a href={msg.attachment_url} download={`archivo_${msg.id.slice(0, 5)}`} className="flex items-center gap-2 bg-slate-100 p-2 rounded-md hover:bg-slate-200 transition-colors text-xs font-semibold text-slate-700">
                                                     <FileText size={16} className="text-red-500" />
