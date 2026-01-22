@@ -639,11 +639,11 @@ function App() {
           />
         );
       case 'scanner':
-        return (user?.role === 'ADMIN' || user?.role === 'CAJERO') ? (
+        return (
           <InvoiceScanner
             onScanComplete={(newTx) => setTransactions([newTx, ...transactions])}
           />
-        ) : null;
+        );
       case 'reports':
         return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} users={registeredUsers} currentUser={user} taxpayers={taxpayers} config={config} /> : null;
       case 'settings':
