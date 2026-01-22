@@ -3,27 +3,31 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Legend
 } from 'recharts';
-import { Transaction, TaxType, User } from '../types';
-import { Download, FileText, TrendingUp, Calendar, Filter, User as UserIcon, Printer } from 'lucide-react';
+import { Transaction, TaxType, User, Taxpayer, Corregimiento, TaxConfig, CommercialCategory } from '../types';
+import { Download, FileText, TrendingUp, Calendar, Filter, User as UserIcon, Printer, PieChart as PieChartIcon, Map as MapIcon } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface ReportsProps {
   transactions: Transaction[];
   users: User[];
   currentUser: User;
+  taxpayers: Taxpayer[];
+  config: TaxConfig;
 }
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUser }) => {
-  const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
+export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUser, taxpayers, config }) => {
+  const [startDate, setStartDate] = React.useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = React.useState(new Date().toISOString().split('T')[0]);
   const [selectedTeller, setSelectedTeller] = React.useState('ALL');
 
   // --- Data Processing ---
   const stats = useMemo(() => {
     // 1. Filter Data based on UI State
     const filtered = transactions.filter(t => {
-      const matchDate = t.date === selectedDate;
+      const matchDate = t.date >= startDate && t.date <= endDate;
       const matchTeller = selectedTeller === 'ALL' || t.tellerName === selectedTeller;
       return matchDate && matchTeller;
     });
@@ -55,12 +59,12 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
     const byDateData = Array.from(byDateMap.entries()).map(([date, amount]) => ({ date, amount }));
 
     return { totalRevenue, avgTicket, paidTransactions, byTypeData, byDateData, filteredTransactions: filtered };
-  }, [transactions, selectedDate, selectedTeller]);
+  }, [transactions, startDate, endDate, selectedTeller]);
 
   // --- Handlers ---
   const handleExportCSV = () => {
     const headers = ['ID Transacción', 'Fecha', 'Hora', 'Tipo Impuesto', 'Contribuyente ID', 'Descripción', 'Estado', 'Monto', 'Cajero'];
-    const rows = transactions.map(t => [
+    const rows = stats.filteredTransactions.map(t => [
       t.id,
       t.date,
       t.time,
@@ -79,19 +83,15 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `reporte_ingresos_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `reporte_ingresos_${startDate}_${endDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const handlePrintClosing = () => {
-    const filteredForReport = transactions.filter(t => {
-      const matchDate = t.date === selectedDate;
-      const matchTeller = selectedTeller === 'ALL' || t.tellerName === selectedTeller;
-      return matchDate && matchTeller;
-    });
-
+    // Use the already filtered stats
+    const filteredForReport = stats.filteredTransactions;
     const total = filteredForReport.reduce((acc, t) => acc + t.amount, 0);
 
     const pdf = new jsPDF();
@@ -101,7 +101,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
     pdf.text("Reporte de Cierre de Caja (Arqueo)", 105, 20, { align: 'center' });
 
     pdf.setFontSize(12);
-    pdf.text(`Fecha: ${selectedDate}`, 20, 35);
+    pdf.text(`Desde: ${startDate}  Hasta: ${endDate}`, 20, 35);
     pdf.text(`Cajero: ${selectedTeller === 'ALL' ? 'TODOS' : selectedTeller}`, 20, 42);
     pdf.text(`Generado por: ${currentUser.name}`, 20, 49);
 
@@ -116,38 +116,217 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
     pdf.text(`B/. ${total.toFixed(2)}`, 145, 45);
 
     // Table
-    let y = 65;
-    pdf.setFontSize(10);
-    pdf.setFont("helvetica", "bold");
-    pdf.text("Hora", 20, y);
-    pdf.text("Transacción", 40, y);
-    pdf.text("Descripción", 80, y);
-    pdf.text("Método", 150, y);
-    pdf.text("Monto", 180, y);
-
-    pdf.line(20, y + 2, 190, y + 2);
-    y += 8;
-
-    pdf.setFont("helvetica", "normal");
-    filteredForReport.forEach(t => {
-      if (y > 280) { pdf.addPage(); y = 20; }
-      pdf.text(t.time, 20, y);
-      pdf.text(t.id, 40, y);
-      const desc = t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description;
-      pdf.text(desc, 80, y);
-      pdf.text(t.paymentMethod, 150, y);
-      pdf.text(t.amount.toFixed(2), 190, y, { align: 'right' });
-      y += 7;
+    autoTable(pdf, {
+      startY: 65,
+      head: [['Hora', 'ID', 'Descripción', 'Método', 'Monto']],
+      body: filteredForReport.map(t => [
+        t.time,
+        t.id,
+        t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description,
+        t.paymentMethod,
+        `B/. ${t.amount.toFixed(2)}`
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [66, 66, 66] },
+      columnStyles: { 4: { halign: 'right' } }
     });
 
-    pdf.line(20, y, 190, y);
-    y += 10;
+    const finalY = (pdf as any).lastAutoTable.finalY + 20;
 
     pdf.setFont("helvetica", "bold");
-    pdf.text("Firma del Cajero: __________________________", 20, y + 20);
-    pdf.text("Firma del Supervisor: _______________________", 110, y + 20);
+    pdf.text("Firma del Cajero: __________________________", 20, finalY);
+    pdf.text("Firma del Supervisor: _______________________", 110, finalY);
 
-    pdf.save(`Arqueo_${selectedDate}_${selectedTeller}.pdf`);
+    pdf.save(`Arqueo_${startDate}_${endDate}_${selectedTeller}.pdf`);
+  };
+
+  const handleGenerateGeneralReport = () => {
+    // 1. Prepare Data
+    // Corregimientos defined in enum
+    const corregimientoStats = Object.values(Corregimiento).map(corregimiento => {
+      // Find taxpayers in this corregimiento
+      const taxpayersInZone = taxpayers.filter(t => t.corregimiento === corregimiento);
+      const taxpayerIds = new Set(taxpayersInZone.map(t => t.id));
+
+      // Calculate Income (from filtered transactions - e.g., today/selected period)
+      // Note: We use 'stats.filteredTransactions' which respects the date filter chosen by user.
+      const income = stats.filteredTransactions
+        .filter(t => taxpayerIds.has(t.taxpayerId))
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      // Calculate Debt & Delinquents in a single pass for consistency
+      const currentMonth = new Date().getMonth() + 1;
+      const currentYear = new Date().getFullYear();
+
+      let zoneTotalDebt = 0;
+      let zoneDelinquentsCount = 0;
+
+      taxpayersInZone.forEach(t => {
+        let tpDebt = t.balance || 0; // Base historical debt
+
+        // Commercial Debt
+        if (t.hasCommercialActivity && t.status !== 'BLOQUEADO') {
+          const hasPaid = transactions.some(tx =>
+            tx.taxpayerId === t.id &&
+            tx.taxType === TaxType.COMERCIO &&
+            new Date(tx.date).getMonth() + 1 === currentMonth &&
+            new Date(tx.date).getFullYear() === currentYear
+          );
+          if (!hasPaid) {
+            tpDebt += config.commercialBaseRate;
+          }
+        }
+
+        // Garbage Debt
+        if (t.hasGarbageService && t.status !== 'BLOQUEADO') {
+          const hasPaid = transactions.some(tx =>
+            tx.taxpayerId === t.id &&
+            tx.taxType === TaxType.BASURA &&
+            new Date(tx.date).getMonth() + 1 === currentMonth &&
+            new Date(tx.date).getFullYear() === currentYear
+          );
+          if (!hasPaid) {
+            tpDebt += config.garbageResidentialRate;
+          }
+        }
+
+        zoneTotalDebt += tpDebt;
+
+        // Count as delinquent if they have ANY debt calculated OR explicit bad status
+        if (tpDebt > 0 || t.status === 'SUSPENDIDO' || t.status === 'BLOQUEADO' || t.status === 'MOROSO') {
+          zoneDelinquentsCount++;
+        }
+      });
+
+      return {
+        name: corregimiento,
+        count: taxpayersInZone.length,
+        income,
+        debt: zoneTotalDebt,
+        delinquents: zoneDelinquentsCount
+      };
+    }).sort((a, b) => b.income - a.income); // Sort by highest income
+
+    const totalIncome = corregimientoStats.reduce((sum, c) => sum + c.income, 0);
+    const totalDebt = corregimientoStats.reduce((sum, c) => sum + c.debt, 0);
+
+    // 2. Generate PDF
+    const pdf = new jsPDF();
+    const pageWidth = pdf.internal.pageSize.width;
+
+    // Header
+    pdf.setFillColor(44, 62, 80); // Dark Blue Header
+    pdf.rect(0, 0, pageWidth, 40, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(22);
+    pdf.text("Informe General de Gestión", pageWidth / 2, 20, { align: 'center' });
+    pdf.setFontSize(12);
+    pdf.text(`Municipio de Changuinola | Periodo: ${startDate} - ${endDate}`, pageWidth / 2, 30, { align: 'center' });
+
+    // Executive Summary Section
+    pdf.setTextColor(44, 62, 80);
+    pdf.setFontSize(16);
+    pdf.text("Resumen Ejecutivo", 14, 55);
+
+    // Summary Cards (drawn as rectangles)
+    const cardY = 60;
+    const cardWidth = 55;
+    const cardHeight = 25;
+
+    // Card 1: Income
+    pdf.setFillColor(236, 253, 245); // Emerald 50
+    pdf.setDrawColor(16, 185, 129); // Emerald 500
+    pdf.rect(14, cardY, cardWidth, cardHeight, 'FD');
+    pdf.setFontSize(10);
+    pdf.setTextColor(16, 185, 129);
+    pdf.text("Ingresos (Periodo)", 19, cardY + 8);
+    pdf.setFontSize(14);
+    pdf.setTextColor(6, 78, 59); // Emerald 900
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`B/. ${totalIncome.toFixed(2)}`, 19, cardY + 18);
+
+    // Card 2: Debt
+    pdf.setFillColor(254, 242, 242); // Red 50
+    pdf.setDrawColor(239, 68, 68); // Red 500
+    pdf.rect(14 + cardWidth + 10, cardY, cardWidth, cardHeight, 'FD');
+    pdf.setFontSize(10);
+    pdf.setTextColor(239, 68, 68);
+    pdf.text("Monto por Cobrar (Global)", 19 + cardWidth + 10, cardY + 8);
+    pdf.setFontSize(14);
+    pdf.setTextColor(127, 29, 29); // Red 900
+    pdf.text(`B/. ${totalDebt.toFixed(2)}`, 19 + cardWidth + 10, cardY + 18);
+
+    // Card 3: Transactions
+    pdf.setFillColor(239, 246, 255); // Blue 50
+    pdf.setDrawColor(59, 130, 246); // Blue 500
+    pdf.rect(14 + (cardWidth + 10) * 2, cardY, cardWidth, cardHeight, 'FD');
+    pdf.setFontSize(10);
+    pdf.setTextColor(59, 130, 246);
+    pdf.text("Transacciones", 19 + (cardWidth + 10) * 2, cardY + 8);
+    pdf.setFontSize(14);
+    pdf.setTextColor(30, 58, 138); // Blue 900
+    pdf.text(`${stats.paidTransactions}`, 19 + (cardWidth + 10) * 2, cardY + 18);
+
+
+    // CHART: Income by Tax Type (Simple Bar Chart representation)
+    let yPos = 100;
+    pdf.setFontSize(14);
+    pdf.setTextColor(44, 62, 80);
+    pdf.text("Distribución de Ingresos por Tipo", 14, yPos);
+    yPos += 10;
+
+    const maxVal = Math.max(...stats.byTypeData.map(d => d.value), 1);
+    const barHeight = 8;
+    stats.byTypeData.forEach((item, index) => {
+      const barWidth = (item.value / maxVal) * 100;
+      pdf.setFontSize(10);
+      pdf.setTextColor(60, 60, 60);
+      pdf.text(item.name, 14, yPos + 6);
+
+      pdf.setFillColor(59, 130, 246);
+      pdf.rect(50, yPos, barWidth, barHeight, 'F');
+
+      pdf.text(`B/. ${item.value.toFixed(2)}`, 55 + barWidth, yPos + 6);
+      yPos += 12;
+    });
+
+    yPos += 10;
+
+    // SECTION: Details by Corregimiento
+    pdf.setFontSize(14);
+    pdf.setTextColor(44, 62, 80);
+    pdf.text("Análisis por Corregimiento (Ranking)", 14, yPos);
+
+    // AutoTable for Corregimientos
+    autoTable(pdf, {
+      startY: yPos + 5,
+      head: [['Corregimiento', 'Contrib.', 'Ingresos (Periodo)', 'Monto Deuda', '# Morosos']],
+      body: corregimientoStats.map(c => [
+        c.name,
+        c.count,
+        `B/. ${c.income.toFixed(2)}`,
+        `B/. ${c.debt.toFixed(2)}`,
+        c.delinquents
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [44, 62, 80] },
+      columnStyles: {
+        2: { halign: 'right', fontStyle: 'bold', textColor: [16, 185, 129] }, // Income Green
+        3: { halign: 'right', fontStyle: 'bold', textColor: [220, 38, 38] },  // Debt Red
+        4: { halign: 'center', fontStyle: 'bold', textColor: [234, 88, 12] }  // Morosos Orange/Red
+      },
+    });
+
+    // Footer
+    const totalPages = (pdf as any).internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150);
+      pdf.text(`Página ${i} de ${totalPages} - Generado el ${new Date().toLocaleString()}`, pageWidth / 2, pdf.internal.pageSize.height - 10, { align: 'center' });
+    }
+
+    pdf.save(`Informe_Gestion_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (
@@ -158,17 +337,36 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
           <h2 className="text-2xl font-bold text-slate-800">Reportes Financieros</h2>
           <p className="text-slate-500">Análisis detallado de recaudación y auditoría.</p>
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleGenerateGeneralReport}
+            className="flex items-center gap-2 bg-indigo-700 text-white px-4 py-2 rounded-lg hover:bg-indigo-800 shadow-md transition-all font-bold animate-pulse"
+            title="Incluye análisis por corregimiento y métricas de deuda"
+          >
+            <FileText size={18} />
+            Informe General PDF
+          </button>
+        </div>
       </div>
 
       {/* Control Bar for Closing Report */}
       <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-4 items-end justify-between">
-        <div className="flex gap-4 items-end w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row gap-4 items-end w-full md:w-auto">
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha de Arqueo</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Desde</label>
             <input
               type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -190,17 +388,17 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
         <div className="flex gap-2">
           <button
             onClick={handlePrintClosing}
-            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 shadow-sm transition-all font-bold"
+            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 shadow-sm transition-all font-medium"
           >
             <Printer size={18} />
-            Generar Arqueo PDF
+            Arqueo PDF
           </button>
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 shadow-sm transition-all font-medium"
+            className="flex items-center gap-2 bg-white text-slate-700 border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm transition-all font-medium"
           >
             <Download size={18} />
-            Exportar General CSV
+            CSV
           </button>
         </div>
       </div>
@@ -287,7 +485,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
-            <PieChart size={18} className="mr-2 text-slate-400" />
+            <PieChartIcon size={18} className="mr-2 text-slate-400" />
             Distribución por Tipo de Impuesto
           </h3>
           <div className="h-72 w-full flex">

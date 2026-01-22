@@ -1,24 +1,98 @@
 import React, { useState } from 'react';
-import { Taxpayer, TaxpayerType, CommercialCategory, Transaction, VehicleInfo, TaxpayerStatus, UserRole } from '../types';
-import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle } from 'lucide-react';
+import { Taxpayer, TaxpayerType, CommercialCategory, Transaction, VehicleInfo, TaxpayerStatus, UserRole, Corregimiento, AdminRequest, RequestStatus } from '../types';
+import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle, Edit } from 'lucide-react';
 
 interface TaxpayersProps {
   taxpayers: Taxpayer[];
   transactions: Transaction[]; // Receive transactions to filter history
   onAdd: (tp: Taxpayer) => void;
-  onUpdate: (tp: Taxpayer) => void; // New prop
-  onDelete: (id: string) => void; // New prop
+  onUpdate: (tp: Taxpayer) => void;
+  onDelete: (id: string) => void;
   userRole: UserRole;
+  onCreateRequest: (req: AdminRequest) => void;
 }
 
-export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, onAdd, onUpdate, onDelete, userRole }) => {
-  const [showModal, setShowModal] = useState(false); // Legacy modal state, mostly unused now unless we want to keep it for editing via search
+export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, onAdd, onUpdate, onDelete, userRole, onCreateRequest }) => {
+  const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Taxpayer[]>([]);
 
+  // Edit Mode State
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // History Modal State
   const [historyTaxpayer, setHistoryTaxpayer] = useState<Taxpayer | null>(null);
+  const [viewTaxpayer, setViewTaxpayer] = useState<Taxpayer | null>(null); // State for viewing full details
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+
+  // ... (rest of state items: initialFormState, newTp, etc.)
+
+  // Load Taxpayer into Form for Editing
+  const handleEditInit = (tp: Taxpayer) => {
+    setNewTp(tp);
+    setIsEditing(true);
+    setEditingId(tp.id);
+    setSearchTerm('');
+    setIsSearching(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll to form
+  };
+
+  const handleCancelEdit = () => {
+    setNewTp(initialFormState);
+    setIsEditing(false);
+    setEditingId(null);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (isEditing && editingId) {
+      // Request Logic
+      const reason = prompt("Por favor, ingrese el motivo de la edición para la aprobación del Administrador:");
+      if (!reason) return;
+
+      const request: AdminRequest = {
+        id: `REQ-${Date.now()}`,
+        type: 'UPDATE_TAXPAYER',
+        status: 'PENDING',
+        requesterName: 'Cajero/Usuario', // Ideally pass current user name prop
+        taxpayerName: newTp.name || 'Desconocido',
+        description: reason,
+        taxpayerId: editingId,
+        payload: newTp as Taxpayer,
+        createdAt: new Date().toISOString()
+      };
+
+      onCreateRequest(request);
+      alert("Solicitud de edición enviada al Administrador.");
+      handleCancelEdit();
+
+    } else {
+      // Create Logic
+      const finalStatus = (newTp.balance && newTp.balance > 0) ? TaxpayerStatus.MOROSO : newTp.status;
+
+      onAdd({
+        ...newTp,
+        id: Date.now().toString(),
+        status: finalStatus,
+        taxpayerNumber: `${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        createdAt: new Date().toISOString().split('T')[0]
+      } as Taxpayer);
+
+      setNewTp(initialFormState);
+      alert(finalStatus === TaxpayerStatus.MOROSO
+        ? "Contribuyente registrado como MOROSO debido al saldo inicial."
+        : "Contribuyente registrado exitosamente."
+      );
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // ... (rest of component functions)
+
+
 
   // --- New Taxpayer Form State (Now Main View) ---
   // Initial empty state
@@ -95,21 +169,7 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onAdd({
-      ...newTp,
-      id: Date.now().toString(),
-      // Simple Auto-Generation Logic: Year + Random 4 digits
-      taxpayerNumber: `${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      createdAt: new Date().toISOString().split('T')[0]
-    } as Taxpayer);
 
-    // Instead of closing modal, we reset the form and show success feedback (alert for now)
-    setNewTp(initialFormState);
-    alert("Contribuyente registrado exitosamente.");
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   const getCategoryLabel = (cat?: CommercialCategory) => {
     switch (cat) {
@@ -190,9 +250,42 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                           <span>• {tp.taxpayerNumber}</span>
                         </div>
                       </div>
-                      <div className="flex items-center text-slate-400 group-hover:text-indigo-500">
-                        <span className="text-xs mr-2 font-medium">Ver Ficha</span>
-                        <History size={16} />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditInit(tp);
+                          }}
+                          className="text-slate-400 hover:text-indigo-600 flex items-center group/edit"
+                          title="Editar Contribuyente"
+                        >
+                          <Edit size={16} className="mr-1" />
+                          <span className="text-xs font-bold underline decoration-transparent group-hover/edit:decoration-indigo-600 transition-all">Editar</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewTaxpayer(tp);
+                            setSearchTerm('');
+                            setIsSearching(false);
+                          }}
+                          className="text-slate-400 hover:text-blue-600 flex items-center group/view mr-2"
+                          title="Ver Ficha Completa"
+                        >
+                          <FileText size={16} className="mr-1" />
+                          <span className="text-xs font-bold underline decoration-transparent group-hover/view:decoration-blue-600 transition-all">Ficha</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setHistoryTaxpayer(tp);
+                            setSearchTerm('');
+                            setIsSearching(false);
+                          }}
+                          className="text-slate-400 hover:text-indigo-500 flex items-center"
+                        >
+                          <span className="text-xs mr-2 font-medium">Historial</span>
+                          <History size={16} />
+                        </button>
                       </div>
                     </button>
                   </li>
@@ -214,13 +307,25 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
 
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-emerald-500/20 rounded-lg backdrop-blur text-emerald-300">
-                <UserPlus size={24} />
+              <div className={`p-2 rounded-lg backdrop-blur ${isEditing ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                {isEditing ? <Edit size={24} /> : <UserPlus size={24} />}
               </div>
-              <span className="text-emerald-400 font-bold tracking-wider text-sm uppercase">Nuevo Registro</span>
+              <span className={`${isEditing ? 'text-amber-400' : 'text-emerald-400'} font-bold tracking-wider text-sm uppercase`}>
+                {isEditing ? 'Modo Edición' : 'Nuevo Registro'}
+              </span>
             </div>
-            <h2 className="text-3xl font-bold text-white mb-2">Ficha de Contribuyente</h2>
-            <p className="text-slate-400 text-lg">Ingrese los datos para registrar un nuevo contribuyente.</p>
+            <h2 className="text-3xl font-bold text-white mb-2">{isEditing ? 'Editar Contribuyente' : 'Ficha de Contribuyente'}</h2>
+            <p className="text-slate-400 text-lg">
+              {isEditing ? 'Modifique los datos y solicite aprobación.' : 'Ingrese los datos para registrar un nuevo contribuyente.'}
+            </p>
+            {isEditing && newTp.taxpayerNumber && (
+              <div className="mt-4 inline-flex items-center bg-white/10 backdrop-blur-md border border-white/20 rounded-lg px-4 py-2">
+                <div className="flex flex-col">
+                  <span className="text-xs uppercase font-bold text-slate-300">N° Contribuyente</span>
+                  <span className="text-xl font-mono font-bold text-white tracking-widest">{newTp.taxpayerNumber}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -282,10 +387,23 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                   </div>
                 )}
 
-                <div className="md:col-span-2">
+                <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Dirección Física</label>
                   <input required type="text" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
-                    value={newTp.address} onChange={e => setNewTp({ ...newTp, address: e.target.value })} placeholder="Provincia, Distrito, Corregimiento, Casa..." />
+                    value={newTp.address} onChange={e => setNewTp({ ...newTp, address: e.target.value })} placeholder="Provincia, Distrito, Casa..." />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Corregimiento</label>
+                  <select
+                    className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base bg-white"
+                    value={newTp.corregimiento || ''}
+                    onChange={e => setNewTp({ ...newTp, corregimiento: e.target.value as Corregimiento })}
+                  >
+                    <option value="">Seleccionar Corregimiento...</option>
+                    {Object.values(Corregimiento).map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -297,6 +415,20 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                   <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico</label>
                   <input type="email" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all text-black text-base"
                     value={newTp.email} onChange={e => setNewTp({ ...newTp, email: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Saldo / Deuda Inicial (B/.)</label>
+                  <input type="number" step="0.01" className="w-full border border-slate-300 rounded-lg p-3 px-4 focus:ring-4 focus:ring-red-100 focus:border-red-500 transition-all text-black text-base"
+                    placeholder="0.00"
+                    value={newTp.balance || ''}
+                    onChange={e => setNewTp({
+                      ...newTp,
+                      balance: parseFloat(e.target.value),
+                      // Auto-set status to MOROSO if balance > 0
+                      // status: parseFloat(e.target.value) > 0 ? TaxpayerStatus.MOROSO : newTp.status 
+                    })}
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Si ingresa un monto, el contribuyente será registrado como MOROSO automáticamente si corresponde.</p>
                 </div>
               </div>
             </div>
@@ -489,14 +621,17 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
             <div className="pt-6 border-t border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-end">
               <button
                 type="button"
-                onClick={() => setNewTp(initialFormState)}
+                onClick={isEditing ? handleCancelEdit : () => setNewTp(initialFormState)}
                 className="w-full md:w-auto px-8 py-4 rounded-xl border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 active:scale-95 transition-all"
               >
-                Limpiar / Cancelar
+                {isEditing ? 'Cancelar Edición' : 'Limpiar / Cancelar'}
               </button>
-              <button type="submit" className="w-full md:w-auto px-10 py-4 rounded-xl bg-slate-900 text-white font-bold text-lg hover:bg-emerald-600 shadow-xl shadow-slate-200 hover:shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center">
-                <CheckCircle size={24} className="mr-2" />
-                Registrar Contribuyente
+              <button type="submit" className={`w-full md:w-auto px-10 py-4 rounded-xl font-bold text-lg shadow-xl transition-all active:scale-95 flex items-center justify-center ${isEditing
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200'
+                : 'bg-slate-900 hover:bg-emerald-600 text-white shadow-slate-200 hover:shadow-emerald-200'
+                }`}>
+                {isEditing ? <Edit size={24} className="mr-2" /> : <CheckCircle size={24} className="mr-2" />}
+                {isEditing ? 'Solicitar Edición' : 'Registrar Contribuyente'}
               </button>
             </div>
           </form>
@@ -591,6 +726,172 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
           </div>
         )
       }
-    </div >
+      {/* --- VIEW DETAILS (FICHA) MODAL --- */}
+      {viewTaxpayer && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh] overflow-hidden animate-fade-in">
+            {/* Header */}
+            <div className="p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/10 rounded-full">
+                  <User size={32} />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold">Ficha Técnica</h2>
+                  <p className="text-slate-400 text-sm">Información General del Contribuyente</p>
+                </div>
+              </div>
+              <button onClick={() => setViewTaxpayer(null)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-full transition-all">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                {/* 1. Identity */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Identidad & Estado</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-slate-500 font-bold mb-1">Nombre / Razón Social</p>
+                      <p className="text-lg font-bold text-slate-900">{viewTaxpayer.name}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">Identificación (Cédula/RUC)</p>
+                        <p className="text-base font-mono text-slate-700">{viewTaxpayer.docId} {viewTaxpayer.dv ? `DV-${viewTaxpayer.dv}` : ''}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">N° Contribuyente</p>
+                        <p className="text-base font-mono text-slate-700 bg-slate-100 inline-block px-2 rounded">{viewTaxpayer.taxpayerNumber || 'N/A'}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">Tipo Persona</p>
+                        <p className="text-sm text-slate-700 font-medium">{viewTaxpayer.type}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">Estado Actual</p>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(viewTaxpayer.status)}`}>
+                          {viewTaxpayer.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Contact */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Ubicación & Contacto</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-slate-500 font-bold mb-1">Dirección Física</p>
+                      <p className="text-base text-slate-800 flex items-start gap-2">
+                        <MapPin size={16} className="mt-1 text-slate-400 flex-shrink-0" />
+                        {viewTaxpayer.address}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 font-bold mb-1">Corregimiento</p>
+                      <p className="text-base text-slate-800">{viewTaxpayer.corregimiento || 'No registrado'}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">Teléfono</p>
+                        <p className="text-sm text-slate-700">{viewTaxpayer.phone || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-bold mb-1">Correo Electrónico</p>
+                        <p className="text-sm text-slate-700 truncate" title={viewTaxpayer.email}>{viewTaxpayer.email || 'N/A'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Services - Commercial */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 md:col-span-2">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Servicios & Activos</h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Activity */}
+                    <div className={`p-4 rounded-xl border ${viewTaxpayer.hasCommercialActivity ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <Store className={viewTaxpayer.hasCommercialActivity ? 'text-indigo-600' : 'text-slate-400'} size={24} />
+                        <p className="font-bold text-slate-700">Comercio</p>
+                      </div>
+                      {viewTaxpayer.hasCommercialActivity ? (
+                        <div className="text-sm">
+                          <p className="font-bold text-indigo-900">{viewTaxpayer.commercialName || 'Sin Nombre'}</p>
+                          <p className="text-indigo-700/70 text-xs">{viewTaxpayer.commercialCategory}</p>
+                        </div>
+                      ) : <p className="text-xs text-slate-400 italic">Inactivo</p>}
+                    </div>
+
+                    {/* Garage/Construction */}
+                    <div className="space-y-4">
+                      <div className={`p-3 rounded-xl border flex items-center justify-between ${viewTaxpayer.hasGarbageService ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                        <div className="flex items-center gap-3">
+                          <Trash2 size={20} className={viewTaxpayer.hasGarbageService ? 'text-emerald-600' : 'text-slate-400'} />
+                          <span className="text-sm font-bold text-slate-700">Recolección Basura</span>
+                        </div>
+                        {viewTaxpayer.hasGarbageService ? <CheckCircle size={16} className="text-emerald-500" /> : <span className="text-xs text-slate-400">No</span>}
+                      </div>
+
+                      <div className={`p-3 rounded-xl border flex items-center justify-between ${viewTaxpayer.hasConstruction ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                        <div className="flex items-center gap-3">
+                          <Hammer size={20} className={viewTaxpayer.hasConstruction ? 'text-amber-600' : 'text-slate-400'} />
+                          <span className="text-sm font-bold text-slate-700">Construcción</span>
+                        </div>
+                        {viewTaxpayer.hasConstruction ? <CheckCircle size={16} className="text-amber-500" /> : <span className="text-xs text-slate-400">No</span>}
+                      </div>
+                    </div>
+
+                    {/* Vehicles */}
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Car className="text-blue-600" size={20} />
+                        <p className="font-bold text-blue-900 text-sm">Vehículos ({viewTaxpayer.vehicles?.length || 0})</p>
+                      </div>
+                      {viewTaxpayer.vehicles && viewTaxpayer.vehicles.length > 0 ? (
+                        <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                          {viewTaxpayer.vehicles.map((v, i) => (
+                            <div key={i} className="bg-white p-2 rounded border border-blue-200 text-xs">
+                              <div className="flex justify-between font-bold text-slate-700">
+                                <span>{v.brand} {v.model}</span>
+                                <span className="bg-blue-100 text-blue-700 px-1 rounded">{v.plate}</span>
+                              </div>
+                              <div className="text-slate-500 text-[10px] mt-0.5">
+                                Año {v.year} • {v.color}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-blue-400 italic text-center py-2">Sin vehículos registrados</p>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setViewTaxpayer(null)}
+                className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition-transform active:scale-95"
+              >
+                Cerrar Ficha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };

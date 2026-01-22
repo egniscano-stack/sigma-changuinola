@@ -45,7 +45,16 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
 
     const potentialTaxes = [];
 
-    // 1. Vehicle Tax (If has vehicles) - Simplified: Assume annual due if not paid
+    // 0. Balance / Historical Debt
+    if ((taxpayer.balance || 0) > 0) {
+        potentialTaxes.push({
+            id: 'debt-balance',
+            type: 'DEUDA_HISTORICA', // Using a string here might require updating types or casting, let's stick to a known type or cast
+            label: 'Saldo Pendiente / Arrastre',
+            amount: taxpayer.balance
+        } as any);
+    }
+
     // In a real app we'd check vehicle renewal month. Here we just check if paid recently.
     if ((taxpayer.vehicles?.length || 0) > 0 && !isPaidThisMonth(TaxType.VEHICULO)) {
         potentialTaxes.push({ id: 'tax-veh', type: TaxType.VEHICULO, label: 'Impuesto de Circulación (Placa)', amount: 25.00 });
@@ -87,7 +96,7 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
 
         const tx = onPayment({
             taxpayerId: taxpayer.id,
-            taxType: selectedTaxToPay,
+            taxType: (selectedTaxToPay === 'DEUDA_HISTORICA' ? TaxType.COMERCIO : selectedTaxToPay) as TaxType,
             amount: paymentAmount,
             paymentMethod: PaymentMethod.ONLINE,
             description: `PAGO ONLINE - ${selectedTaxToPay}`,

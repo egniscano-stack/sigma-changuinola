@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo } from '../types';
+import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo, AgendaItem, Corregimiento } from '../types';
 
 // --- DATA MAPPING HELPERS (Snake_case DB <-> CamelCase App) ---
 
@@ -13,11 +13,13 @@ export const mapTaxpayerFromDB = (data: any): Taxpayer => ({
     dv: data.dv,
     name: data.name,
     address: data.address,
+    corregimiento: data.corregimiento as Corregimiento,
     phone: data.phone,
     email: data.email,
     hasCommercialActivity: data.has_commercial_activity,
     commercialCategory: data.commercial_category as CommercialCategory,
     commercialName: data.commercial_name,
+    balance: data.balance,
     hasConstruction: data.has_construction,
     hasGarbageService: data.has_garbage_service,
     vehicles: [], // Vehicles loaded separately or joined
@@ -33,11 +35,13 @@ const mapTaxpayerToDB = (data: Taxpayer) => ({
     dv: data.dv,
     name: data.name,
     address: data.address,
+    corregimiento: data.corregimiento,
     phone: data.phone,
     email: data.email,
     has_commercial_activity: data.hasCommercialActivity,
     commercial_category: data.commercialCategory,
     commercial_name: data.commercialName,
+    balance: data.balance || 0,
     has_construction: data.hasConstruction,
     has_garbage_service: data.hasGarbageService
 });
@@ -69,6 +73,41 @@ const mapTransactionToDB = (data: Transaction) => ({
     teller_name: data.tellerName,
     metadata: data.metadata
 });
+
+// --- AGENDA MAPPINGS ---
+
+const mapAgendaItemFromDB = (data: any): AgendaItem => ({
+    id: data.id,
+    title: data.title,
+    description: data.description,
+    startDate: data.start_date,
+    startTime: data.start_time,
+    endDate: data.end_date,
+    endTime: data.end_time,
+    type: data.type,
+    status: data.status,
+    location: data.location,
+    createdBy: data.created_by,
+    isImportant: data.is_important,
+    rejectionReason: data.rejection_reason
+});
+
+const mapAgendaItemToDB = (data: AgendaItem) => ({
+    id: data.id,
+    title: data.title,
+    description: data.description,
+    start_date: data.startDate,
+    start_time: data.startTime,
+    end_date: data.endDate,
+    end_time: data.endTime,
+    type: data.type,
+    status: data.status,
+    location: data.location,
+    created_by: data.createdBy,
+    is_important: data.isImportant,
+    rejection_reason: data.rejectionReason
+});
+
 
 // --- API FUNCTIONS ---
 
@@ -168,10 +207,50 @@ export const db = {
         return data.config;
     },
 
+
+    // AGENDA
+    getAgenda: async (): Promise<AgendaItem[]> => {
+        const { data, error } = await supabase.from('agenda_items').select('*').order('start_date', { ascending: true }).order('start_time', { ascending: true });
+        if (error) {
+            console.error("Error fetching agenda:", error);
+            return []; // Fail gracefully
+        }
+        return data.map(mapAgendaItemFromDB);
+    },
+
+    createAgendaItem: async (item: AgendaItem) => {
+        const dbData = mapAgendaItemToDB(item);
+        delete (dbData as any).id; // Let DB generate ID
+        const { data, error } = await supabase.from('agenda_items').insert(dbData).select().single();
+        if (error) throw error;
+        return mapAgendaItemFromDB(data);
+    },
+
+    updateAgendaItem: async (item: AgendaItem) => {
+        const dbData = mapAgendaItemToDB(item);
+        const { data, error } = await supabase.from('agenda_items').update(dbData).eq('id', item.id).select().single();
+        if (error) throw error;
+        return mapAgendaItemFromDB(data);
+    },
+
+    // CUSTOM QUERY: Get Reports for Mayor (Today, Week, Month counts)
+    getReportStats: async () => {
+        // This would ideally be a severeal queries or a function.
+        // For now, we fetch transactions and calculate client side or use count
+        // Optimally:
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+        // Let's just return raw transaction data for the dashboard to filter for now
+        // to simplify the backend requirements (as we are mocking slightly)
+        return db.getTransactions();
+    },
+
     // REALTIME SUBSCRIPTION
     subscribeToChanges: (
         onTaxpayerChange: (payload: any) => void,
-        onTransactionChange: (payload: any) => void
+        onTransactionChange: (payload: any) => void,
+        onAgendaChange?: (payload: any) => void
     ) => {
         const taxpayersSubscription = supabase
             .channel('public:taxpayers')
@@ -187,9 +266,20 @@ export const db = {
             })
             .subscribe();
 
+        let agendaSubscription: any = null;
+        if (onAgendaChange) {
+            agendaSubscription = supabase
+                .channel('public:agenda_items')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'agenda_items' }, (payload) => {
+                    onAgendaChange(payload);
+                })
+                .subscribe();
+        }
+
         return () => {
             supabase.removeChannel(taxpayersSubscription);
             supabase.removeChannel(transactionsSubscription);
+            if (agendaSubscription) supabase.removeChannel(agendaSubscription);
         };
     }
 };

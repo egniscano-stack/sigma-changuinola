@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { TaxConfig, MunicipalityInfo, User, UserRole } from '../types';
-import { Save, Shield, DollarSign, Building, UserPlus, X, Database, Globe, Download, Upload, Server, FileSpreadsheet } from 'lucide-react';
+import { TaxConfig, MunicipalityInfo, User, UserRole, Taxpayer, Transaction, TaxpayerStatus } from '../types';
+import { Save, Shield, DollarSign, Building, UserPlus, X, Database, Globe, Download, Upload, Server, FileSpreadsheet, RefreshCw } from 'lucide-react';
 
 interface SettingsProps {
   config: TaxConfig;
@@ -9,13 +9,18 @@ interface SettingsProps {
   onUpdateMunicipalityInfo: (info: MunicipalityInfo) => void;
   users: User[];
   onUpdateUser: (user: User) => void;
+  onCreateUser: (user: User) => void;
   onSimulateScraping: () => void;
   onBackup: () => void;
   onImport: (file: File) => void;
+  taxpayers: Taxpayer[];
+  transactions: Transaction[];
+  onUpdateTaxpayer: (tp: Taxpayer) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
-  config, onUpdateConfig, municipalityInfo, onUpdateMunicipalityInfo, users, onCreateUser, onUpdateUser, onSimulateScraping, onBackup, onImport
+  config, onUpdateConfig, municipalityInfo, onUpdateMunicipalityInfo, users, onCreateUser, onUpdateUser, onSimulateScraping, onBackup, onImport,
+  taxpayers, transactions, onUpdateTaxpayer
 }) => {
   const [localConfig, setLocalConfig] = useState<TaxConfig>(config);
   const [localMuniInfo, setLocalMuniInfo] = useState<MunicipalityInfo>(municipalityInfo);
@@ -98,6 +103,27 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const triggerImport = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleUpdateDefaulters = () => {
+    if (!confirm("Esta acción verificará a todos los contribuyentes sin historial de pago y los marcará como 'MOROSO'. ¿Continuar?")) return;
+
+    let updatedCount = 0;
+
+    // Find taxpayers with no transactions
+    // Optimization: Create a Set of IDs from transactions
+    const taxpayerIdsWithTransactions = new Set(transactions.map(t => t.taxpayerId));
+
+    taxpayers.forEach(tp => {
+      // If not in transaction list AND status is not already MOROSO (or other finalized status if any)
+      if (!taxpayerIdsWithTransactions.has(tp.id) && tp.status === TaxpayerStatus.ACTIVO) {
+        const updatedTp = { ...tp, status: TaxpayerStatus.MOROSO };
+        onUpdateTaxpayer(updatedTp);
+        updatedCount++;
+      }
+    });
+
+    alert(`Proceso completado. ${updatedCount} contribuyentes marcados como Morosos.`);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -312,7 +338,7 @@ export const Settings: React.FC<SettingsProps> = ({
             {/* Database Actions */}
             <div className="space-y-4">
               <h4 className="font-semibold text-slate-700 flex items-center">
-                <FileSpreadsheet size={18} className="mr-2 text-emerald-600" /> Respaldo y Restauración (Excel)
+                <FileSpreadsheet size={18} className="mr-2 text-emerald-600" /> Respaldo y Mantenimiento
               </h4>
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <div className="flex items-center justify-between mb-4">
@@ -323,7 +349,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mb-4">
-                  Descargue un archivo Excel completo con todas las tablas del sistema, o importe datos masivos alimentando la base de datos existente.
+                  Descargue respaldos, importe datos o ejecute diagnósticos de morosidad.
                 </p>
 
                 <div className="space-y-2">
@@ -342,6 +368,15 @@ export const Settings: React.FC<SettingsProps> = ({
                     <Upload size={18} className="mr-2" />
                     Importar Datos (Excel)
                   </button>
+
+                  <button
+                    onClick={handleUpdateDefaulters}
+                    className="w-full flex items-center justify-center bg-amber-100 text-amber-800 border border-amber-200 py-2 rounded-lg hover:bg-amber-200 font-bold transition-colors"
+                  >
+                    <RefreshCw size={18} className="mr-2" />
+                    Actualizar Morosidad (Sin Pagos)
+                  </button>
+
                   <input
                     type="file"
                     ref={fileInputRef}

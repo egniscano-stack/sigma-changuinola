@@ -32,10 +32,22 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth() + 1;
+    const activeStatuses = ['ACTIVO', 'MOROSO'];
 
     taxpayers.forEach(tp => {
+      // 0. Pre-existing Balance / Deuda
+      if ((tp.balance || 0) > 0) {
+        debts.push({
+          taxpayer: tp,
+          type: TaxType.COMERCIO, // Generic fallback
+          description: `Saldo Pendiente / Arrastre (B/. ${tp.balance?.toFixed(2)})`,
+          dueDate: `${currentYear}-01-01`, // Assumptions
+          isOverdue: true
+        });
+      }
+
       // 1. Commercial Tax
-      if (tp.hasCommercialActivity && tp.status === 'ACTIVO') {
+      if (tp.hasCommercialActivity && activeStatuses.includes(tp.status)) {
         const hasPaid = transactions.some(t => {
           const tDate = new Date(t.date);
           return t.taxpayerId === tp.id && t.taxType === TaxType.COMERCIO &&
@@ -53,7 +65,7 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
       }
 
       // 2. Garbage Tax
-      if (tp.hasGarbageService && tp.status === 'ACTIVO') {
+      if (tp.hasGarbageService && activeStatuses.includes(tp.status)) {
         const hasPaid = transactions.some(t => {
           const tDate = new Date(t.date);
           return t.taxpayerId === tp.id && t.taxType === TaxType.BASURA &&
@@ -71,7 +83,7 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
       }
 
       // 3. Vehicle Tax
-      if (tp.vehicles && tp.vehicles.length > 0 && tp.status === 'ACTIVO') {
+      if (tp.vehicles && tp.vehicles.length > 0 && activeStatuses.includes(tp.status)) {
         tp.vehicles.forEach(v => {
           const lastDigit = parseInt(v.plate.slice(-1)) || 1;
           const renewalMonth = lastDigit === 0 ? 10 : lastDigit;

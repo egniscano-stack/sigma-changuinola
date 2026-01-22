@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Taxpayer, TaxConfig, TaxType, CommercialCategory, PaymentMethod, Transaction, User, MunicipalityInfo } from '../types';
-import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, X, ArrowLeft, Save, User as UserIcon, MapPin, Download } from 'lucide-react';
+import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, X, ArrowLeft, Save, User as UserIcon, MapPin, Download, AlertCircle, Lock } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
@@ -26,6 +26,8 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const activeTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
 
@@ -60,7 +62,109 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
     }
   }, [initialTaxpayer]);
 
-  // Filter Logic
+  // --- DEBT CALCULATION LOGIC (Consolidated View) ---
+  const taxpayerDebts = useMemo(() => {
+    if (!activeTaxpayer) return [];
+    const debts: any[] = [];
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1;
+
+    // 1. Balance / Historical
+    if ((activeTaxpayer.balance || 0) > 0) {
+      debts.push({
+        id: 'balance',
+        type: 'DEUDA_HISTORICA',
+        label: 'Saldo Pendiente / Arrastre',
+        amount: activeTaxpayer.balance,
+        description: `Saldo Pendiente Acumulado`,
+        isPriority: true
+      });
+    }
+
+    // 2. Commercial
+    if (activeTaxpayer.hasCommercialActivity && activeTaxpayer.status !== 'BLOQUEADO') {
+      const hasPaid = transactions.some(t =>
+        t.taxpayerId === activeTaxpayer.id &&
+        t.taxType === TaxType.COMERCIO &&
+        t.status === 'PAGADO' &&
+        new Date(t.date).getMonth() + 1 === currentMonth &&
+        new Date(t.date).getFullYear() === currentYear
+      );
+      if (!hasPaid) {
+        const amount = activeTaxpayer.commercialCategory ? config.commercialRates[activeTaxpayer.commercialCategory] : config.commercialBaseRate;
+        debts.push({
+          id: `com-${currentMonth}-${currentYear}`,
+          type: TaxType.COMERCIO,
+          label: `Impuesto Comercial - Mes Actual`,
+          amount: amount || 0,
+          description: `Impuesto Comercial (${activeTaxpayer.commercialCategory})`,
+          metadata: { month: currentMonth, year: currentYear }
+        });
+      }
+    }
+
+    // 3. Garbage
+    if (activeTaxpayer.hasGarbageService && activeTaxpayer.status !== 'BLOQUEADO') {
+      const hasPaid = transactions.some(t =>
+        t.taxpayerId === activeTaxpayer.id &&
+        t.taxType === TaxType.BASURA &&
+        t.status === 'PAGADO' &&
+        new Date(t.date).getMonth() + 1 === currentMonth &&
+        new Date(t.date).getFullYear() === currentYear
+      );
+      if (!hasPaid) {
+        // Simple logic for rate based on type logic in portal/debts
+        const rate = activeTaxpayer.type === 'JURIDICA' ? config.garbageCommercialRate : config.garbageResidentialRate;
+        debts.push({
+          id: `bas-${currentMonth}-${currentYear}`,
+          type: TaxType.BASURA,
+          label: `Tasa de Aseo - Mes Actual`,
+          amount: rate,
+          description: 'Tasa de Aseo / Basura',
+          metadata: { month: currentMonth, year: currentYear }
+        });
+      }
+    }
+
+    // 4. Vehicles
+    if (activeTaxpayer.vehicles && activeTaxpayer.vehicles.length > 0) {
+      activeTaxpayer.vehicles.forEach(v => {
+        const hasPaid = transactions.some(t =>
+          t.taxpayerId === activeTaxpayer.id &&
+          t.taxType === TaxType.VEHICULO &&
+          t.metadata?.plateNumber === v.plate &&
+          new Date(t.date).getFullYear() === currentYear
+        );
+        if (!hasPaid) {
+          debts.push({
+            id: `veh-${v.plate}-${currentYear}`,
+            type: TaxType.VEHICULO,
+            label: `Impuesto Vehicular (Placa ${v.plate})`,
+            amount: config.plateCost,
+            description: `Impuesto de Circulación - Placa ${v.plate}`,
+            metadata: { plateNumber: v.plate, year: currentYear }
+          });
+        }
+      });
+    }
+
+    return debts;
+  }, [activeTaxpayer, transactions, config]);
+
+  const handlePayDebtItem = (debt: any) => {
+    const tx = onPayment({
+      taxType: debt.type === 'DEUDA_HISTORICA' ? TaxType.COMERCIO : debt.type, // Fallback tax type
+      taxpayerId: selectedTaxpayerId,
+      amount: debt.amount,
+      paymentMethod: paymentMethod,
+      description: debt.description,
+      metadata: debt.metadata
+    });
+    setLastTransaction(tx);
+    setShowInvoice(true);
+  };
+
   const filteredTaxpayers = searchTerm.length > 0
     ? taxpayers.filter(t =>
       t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -68,8 +172,6 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       t.taxpayerNumber?.includes(searchTerm)
     )
     : [];
-
-  const activeTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -471,9 +573,82 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
             <button onClick={handleClearSelection} className="bg-white/10 hover:bg-white/20 p-2 rounded text-white"><X size={20} /></button>
           </div>
         )}
+
+        {/* --- DEBT SUMMARY AND ALERTS (PAZ Y SALVO BLOCK) --- */}
+        {activeTaxpayer && (
+          <div className="mt-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className={`p-4 rounded-xl border ${taxpayerDebts.length > 0 ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+              <p className="text-xs uppercase font-bold opacity-70 mb-1">Estado de Cuenta</p>
+              <div className="flex items-center gap-2">
+                {taxpayerDebts.length > 0 ? <AlertCircle size={20} /> : <CheckCircle size={20} />}
+                <span className="font-bold text-lg">{taxpayerDebts.length > 0 ? `${taxpayerDebts.length} Deuda(s) Pendiente(s)` : 'Paz y Salvo'}</span>
+              </div>
+            </div>
+
+            <div className="md:col-span-2 flex items-center justify-end p-4">
+              {taxpayerDebts.length === 0 ? (
+                <button
+                  onClick={() => alert("Generando Paz y Salvo... (Funcionalidad Simulada: Se imprimiría el PDF)")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg shadow-emerald-200 flex items-center gap-2 transition-transform active:scale-95"
+                >
+                  <CheckCircle size={20} /> Generar Paz y Salvo
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 text-red-500 bg-white px-4 py-2 rounded-lg border border-red-100 shadow-sm">
+                  <Lock size={16} />
+                  <span className="font-bold text-sm">Paz y Salvo Bloqueado: Contribuyente Moroso</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* --- FORM --- */}
+      {/* --- DEBTS LIST (SEPARATE PAYMENTS) --- */}
+      {
+        activeTaxpayer && taxpayerDebts.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mb-6 animate-fade-in relative z-10">
+            <div className="bg-red-600 text-white p-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <AlertCircle size={20} /> Deudas Pendientes
+              </h3>
+              <span className="text-xs bg-white/20 px-2 py-1 rounded font-mono">Total: B/. {taxpayerDebts.reduce((acc, d) => acc + (d.amount || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="p-0">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-3">Concepto</th>
+                    <th className="px-6 py-3 text-right">Monto</th>
+                    <th className="px-6 py-3 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {taxpayerDebts.map((debt, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-slate-800">{debt.label}</p>
+                        <p className="text-xs text-slate-500">{debt.description}</p>
+                      </td>
+                      <td className="px-6 py-4 text-right font-bold text-slate-900">
+                        B/. {debt.amount?.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => handlePayDebtItem(debt)}
+                          className="bg-slate-900 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md active:scale-95 transition-all"
+                        >
+                          Pagar Item
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
       <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-100 transition-opacity ${!activeTaxpayer ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
 
         <div className="mb-6">
@@ -583,188 +758,192 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       </div>
 
       {/* --- REQUEST AUTHORIZATION MODAL --- */}
-      {showRequestModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-scale-up">
-            <h3 className="text-xl font-bold text-slate-800 mb-4">Solicitar Autorización Administrativa</h3>
+      {
+        showRequestModal && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-scale-up">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">Solicitar Autorización Administrativa</h3>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Tipo de Solicitud</label>
-                <select
-                  className="w-full border rounded p-2"
-                  value={newRequestType}
-                  onChange={(e) => setNewRequestType(e.target.value as RequestType)}
-                >
-                  <option value="VOID_TRANSACTION">Anulación / Descobro</option>
-                  <option value="PAYMENT_ARRANGEMENT">Arreglo de Pago</option>
-                </select>
-              </div>
-
-              {newRequestType === 'VOID_TRANSACTION' && (
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">ID de Transacción (Recibo)</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Tipo de Solicitud</label>
+                  <select
                     className="w-full border rounded p-2"
-                    placeholder="Ej. TX-123456"
-                    value={requestTargetId}
-                    onChange={(e) => setRequestTargetId(e.target.value)}
+                    value={newRequestType}
+                    onChange={(e) => setNewRequestType(e.target.value as RequestType)}
+                  >
+                    <option value="VOID_TRANSACTION">Anulación / Descobro</option>
+                    <option value="PAYMENT_ARRANGEMENT">Arreglo de Pago</option>
+                  </select>
+                </div>
+
+                {newRequestType === 'VOID_TRANSACTION' && (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">ID de Transacción (Recibo)</label>
+                    <input
+                      type="text"
+                      className="w-full border rounded p-2"
+                      placeholder="Ej. TX-123456"
+                      value={requestTargetId}
+                      onChange={(e) => setRequestTargetId(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {newRequestType === 'PAYMENT_ARRANGEMENT' && (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Monto Total de la Deuda</label>
+                    <input
+                      type="number"
+                      className="w-full border rounded p-2"
+                      placeholder="0.00"
+                      value={newRequestAmount}
+                      onChange={(e) => setNewRequestAmount(parseFloat(e.target.value))}
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Motivo / Descripción</label>
+                  <textarea
+                    className="w-full border rounded p-2 h-24"
+                    placeholder="Explique la razón de la solicitud..."
+                    value={newRequestDesc}
+                    onChange={(e) => setNewRequestDesc(e.target.value)}
                   />
                 </div>
-              )}
 
-              {newRequestType === 'PAYMENT_ARRANGEMENT' && (
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Monto Total de la Deuda</label>
-                  <input
-                    type="number"
-                    className="w-full border rounded p-2"
-                    placeholder="0.00"
-                    value={newRequestAmount}
-                    onChange={(e) => setNewRequestAmount(parseFloat(e.target.value))}
-                  />
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowRequestModal(false)}
+                    className="flex-1 bg-slate-100 text-slate-700 py-2 rounded hover:bg-slate-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (onCreateRequest) {
+                        const selectedTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
+                        const req: AdminRequest = {
+                          id: `REQ-${Date.now()}`,
+                          type: newRequestType,
+                          status: 'PENDING',
+                          requesterName: currentUser.name || 'Cajero',
+                          taxpayerName: selectedTaxpayer?.name || 'Desconocido',
+                          description: newRequestDesc,
+                          transactionId: requestTargetId,
+                          totalDebt: newRequestType === 'PAYMENT_ARRANGEMENT' ? newRequestAmount : undefined,
+                          createdAt: new Date().toISOString()
+                        };
+                        onCreateRequest(req);
+                        setShowRequestModal(false);
+                        setNewRequestDesc('');
+                        setNewRequestAmount(0);
+                        setRequestTargetId('');
+                      }
+                    }}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+                  >
+                    Enviar Solicitud
+                  </button>
                 </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Motivo / Descripción</label>
-                <textarea
-                  className="w-full border rounded p-2 h-24"
-                  placeholder="Explique la razón de la solicitud..."
-                  value={newRequestDesc}
-                  onChange={(e) => setNewRequestDesc(e.target.value)}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => setShowRequestModal(false)}
-                  className="flex-1 bg-slate-100 text-slate-700 py-2 rounded hover:bg-slate-200"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    if (onCreateRequest) {
-                      const selectedTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
-                      const req: AdminRequest = {
-                        id: `REQ-${Date.now()}`,
-                        type: newRequestType,
-                        status: 'PENDING',
-                        requesterName: currentUser.name || 'Cajero',
-                        taxpayerName: selectedTaxpayer?.name || 'Desconocido',
-                        description: newRequestDesc,
-                        transactionId: requestTargetId,
-                        totalDebt: newRequestType === 'PAYMENT_ARRANGEMENT' ? newRequestAmount : undefined,
-                        createdAt: new Date().toISOString()
-                      };
-                      onCreateRequest(req);
-                      setShowRequestModal(false);
-                      setNewRequestDesc('');
-                      setNewRequestAmount(0);
-                      setRequestTargetId('');
-                    }
-                  }}
-                  className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-                >
-                  Enviar Solicitud
-                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* --- CASHIER NOTIFICATIONS / REQUEST STATUS --- */}
-      {adminRequests.filter(r => r.status !== 'ARCHIVED').length > 0 && (
-        <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
-          <div className="bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden flex flex-col max-h-[500px]">
-            <div className="bg-slate-800 text-white p-3 flex justify-between items-center cursor-pointer" onClick={() => {/* Toggle collapse could go here */ }}>
-              <h4 className="font-bold text-sm flex items-center">
-                <Banknote className="mr-2" size={16} /> Estado de Solicitudes
-              </h4>
-              <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.filter(r => r.status !== 'ARCHIVED').length}</span>
-            </div>
+      {
+        adminRequests.filter(r => r.status !== 'ARCHIVED').length > 0 && (
+          <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
+            <div className="bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden flex flex-col max-h-[500px]">
+              <div className="bg-slate-800 text-white p-3 flex justify-between items-center cursor-pointer" onClick={() => {/* Toggle collapse could go here */ }}>
+                <h4 className="font-bold text-sm flex items-center">
+                  <Banknote className="mr-2" size={16} /> Estado de Solicitudes
+                </h4>
+                <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.filter(r => r.status !== 'ARCHIVED').length}</span>
+              </div>
 
-            <div className="p-2 bg-slate-50 overflow-y-auto space-y-2">
-              {[...adminRequests].filter(r => r.status !== 'ARCHIVED').reverse().map(req => (
-                <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm relative group ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
-                  req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
-                  }`}>
-                  {/* DISMISS BUTTON FOR PROCESSED REQUESTS */}
-                  {req.status !== 'PENDING' && (
-                    <button
-                      onClick={() => {
-                        if (onUpdateRequest) {
-                          onUpdateRequest(adminRequests.map(r => r.id === req.id ? { ...r, status: 'ARCHIVED' as any } : r)); // Cast to any or update type if possible, or just filter locally if no persist
-                        }
-                      }}
-                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
-                      title="Ocultar notificación"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
+              <div className="p-2 bg-slate-50 overflow-y-auto space-y-2">
+                {[...adminRequests].filter(r => r.status !== 'ARCHIVED').reverse().map(req => (
+                  <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm relative group ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
+                    req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
+                    }`}>
+                    {/* DISMISS BUTTON FOR PROCESSED REQUESTS */}
+                    {req.status !== 'PENDING' && (
+                      <button
+                        onClick={() => {
+                          if (onUpdateRequest) {
+                            onUpdateRequest(adminRequests.map(r => r.id === req.id ? { ...r, status: 'ARCHIVED' as any } : r)); // Cast to any or update type if possible, or just filter locally if no persist
+                          }
+                        }}
+                        className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
+                        title="Ocultar notificación"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
 
-                  <div className="flex justify-between items-start mb-1 pr-6">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                      {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
-                    </span>
-                    <span className={`text-[10px] font-bold ${req.status === 'APPROVED' ? 'text-emerald-600' :
-                      req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
-                      }`}>
-                      {req.status === 'PENDING' ? 'EN ESPERA' : req.status}
-                    </span>
+                    <div className="flex justify-between items-start mb-1 pr-6">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                        {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
+                      </span>
+                      <span className={`text-[10px] font-bold ${req.status === 'APPROVED' ? 'text-emerald-600' :
+                        req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
+                        }`}>
+                        {req.status === 'PENDING' ? 'EN ESPERA' : req.status}
+                      </span>
+                    </div>
+                    <p className="font-bold text-slate-700 truncate">{req.taxpayerName}</p>
+
+                    {/* APPROVED ACTIONS */}
+                    {req.status === 'APPROVED' && (
+                      <div className="mt-2 animate-fade-in">
+                        <p className="text-xs text-emerald-700 mb-2 font-medium">{req.responseNote || 'Solicitud Aprobada'}</p>
+                        {req.type === 'PAYMENT_ARRANGEMENT' ? (
+                          <button
+                            onClick={() => {
+                              setLoadedArrangement(req);
+                              const tp = taxpayers.find(t => t.name === req.taxpayerName);
+                              if (tp) setSelectedTaxpayerId(tp.id);
+                              setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
+                              alert(`CARGANDO ARREGLO DE PAGO\n-------------------------\nAbono Inicial: B/. ${req.approvedAmount?.toFixed(2)}\nLetras: ${req.installments}\nTotal Deuda: B/. ${req.approvedTotalDebt?.toFixed(2)}`);
+                              // Auto-dismiss after loading? Maybe not, let user dismiss.
+                            }}
+                            className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded hover:bg-emerald-700 shadow-sm"
+                          >
+                            CARGAR COBRO
+                          </button>
+                        ) : (
+                          <div className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded text-center font-bold">
+                            ANULACIÓN AUTORIZADA
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* REJECTED REASON */}
+                    {req.status === 'REJECTED' && (
+                      <div className="mt-2 bg-red-100 text-red-800 text-xs p-2 rounded">
+                        <p className="font-bold mb-1">Rechazado por Admin:</p>
+                        <p>"{req.responseNote}"</p>
+                      </div>
+                    )}
+
+                    {/* PENDING INFO */}
+                    {req.status === 'PENDING' && (
+                      <p className="text-xs text-slate-400 mt-1 italic">Esperando respuesta del administrador...</p>
+                    )}
                   </div>
-                  <p className="font-bold text-slate-700 truncate">{req.taxpayerName}</p>
-
-                  {/* APPROVED ACTIONS */}
-                  {req.status === 'APPROVED' && (
-                    <div className="mt-2 animate-fade-in">
-                      <p className="text-xs text-emerald-700 mb-2 font-medium">{req.responseNote || 'Solicitud Aprobada'}</p>
-                      {req.type === 'PAYMENT_ARRANGEMENT' ? (
-                        <button
-                          onClick={() => {
-                            setLoadedArrangement(req);
-                            const tp = taxpayers.find(t => t.name === req.taxpayerName);
-                            if (tp) setSelectedTaxpayerId(tp.id);
-                            setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
-                            alert(`CARGANDO ARREGLO DE PAGO\n-------------------------\nAbono Inicial: B/. ${req.approvedAmount?.toFixed(2)}\nLetras: ${req.installments}\nTotal Deuda: B/. ${req.approvedTotalDebt?.toFixed(2)}`);
-                            // Auto-dismiss after loading? Maybe not, let user dismiss.
-                          }}
-                          className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded hover:bg-emerald-700 shadow-sm"
-                        >
-                          CARGAR COBRO
-                        </button>
-                      ) : (
-                        <div className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded text-center font-bold">
-                          ANULACIÓN AUTORIZADA
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* REJECTED REASON */}
-                  {req.status === 'REJECTED' && (
-                    <div className="mt-2 bg-red-100 text-red-800 text-xs p-2 rounded">
-                      <p className="font-bold mb-1">Rechazado por Admin:</p>
-                      <p>"{req.responseNote}"</p>
-                    </div>
-                  )}
-
-                  {/* PENDING INFO */}
-                  {req.status === 'PENDING' && (
-                    <p className="text-xs text-slate-400 mt-1 italic">Esperando respuesta del administrador...</p>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
-    </div>
+    </div >
   );
 };

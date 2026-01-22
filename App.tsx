@@ -14,6 +14,8 @@ import { Reports } from './pages/Reports';
 import { INITIAL_CONFIG } from './services/mockData';
 import { TaxpayerPortal } from './pages/TaxpayerPortal';
 import { Landing } from './pages/Landing'; // Import Landing
+import { AlcaldeDashboard } from './pages/AlcaldeDashboard';
+import { SecretariaDashboard } from './pages/SecretariaDashboard';
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus, AdminRequest, RequestStatus } from './types';
 import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw, Bell, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { db, mapTaxpayerFromDB, mapTransactionFromDB } from './services/db';
@@ -90,20 +92,23 @@ function App() {
             setRegisteredUsers([defaultAdmin, defaultRegistro]);
           }
         } else {
-          // Check if 'registro' exists, if not add it (Migration for existing dev setup)
+          // Check if 'registro' exists
           const hasRegistro = usersData.find(u => u.username === 'registro');
           if (!hasRegistro) {
-            const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' };
-            try {
-              const created = await db.createAppUser(defaultRegistro);
-              setRegisteredUsers([...usersData, created]);
-            } catch (e) {
-              console.error("Failed to seed registro user:", e);
-              setRegisteredUsers([...usersData, defaultRegistro]);
-            }
-          } else {
-            setRegisteredUsers(usersData);
+            const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' }; // Fixed role
+            try { await db.createAppUser(defaultRegistro); } catch (e) { console.error(e); }
           }
+
+          // Check if 'alcalde' exists
+          const hasAlcalde = usersData.find(u => u.username === 'alcalde');
+          if (!hasAlcalde) {
+            const defaultAlcalde: User = { username: 'alcalde', password: 'mnc', name: 'Alcalde Municipal', role: 'ALCALDE' };
+            try { await db.createAppUser(defaultAlcalde); } catch (e) { console.error(e); }
+          }
+
+          // Fetch again to include new users
+          const updatedUsers = await db.getAppUsers();
+          setRegisteredUsers(updatedUsers);
         }
 
         setTaxpayers(taxpayersData);
@@ -434,6 +439,7 @@ function App() {
         "Actividad Comercial": tp.hasCommercialActivity ? "SÍ" : "NO",
         "Nombre Comercial": tp.commercialName || "N/A",
         "Categoría Comercial": tp.commercialCategory,
+        "Corregimiento": tp.corregimiento || "N/A",
         "Servicio Basura": tp.hasGarbageService ? "ACTIVO" : "NO",
         "Permiso Construcción": tp.hasConstruction ? "ACTIVO" : "NO",
         "Vehículos Registrados": tp.vehicles && tp.vehicles.length > 0
@@ -525,6 +531,7 @@ function App() {
             onUpdate={handleUpdateTaxpayer}
             onDelete={handleDeleteTaxpayer}
             userRole={user?.role || 'CAJERO'}
+            onCreateRequest={(req) => setAdminRequests(prev => [...prev, req])}
           />
         );
       case 'caja':
@@ -558,7 +565,7 @@ function App() {
           />
         ) : null;
       case 'reports':
-        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} users={registeredUsers} currentUser={user} /> : null;
+        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Reports transactions={transactions} users={registeredUsers} currentUser={user} taxpayers={taxpayers} config={config} /> : null;
       case 'settings':
         return user?.role === 'ADMIN' ? (
           <Settings
@@ -572,6 +579,9 @@ function App() {
             onSimulateScraping={handleSimulateScraping}
             onBackup={handleExcelBackup}
             onImport={handleExcelImport}
+            taxpayers={taxpayers}
+            transactions={transactions}
+            onUpdateTaxpayer={handleUpdateTaxpayer}
           />
         ) : null;
       default:
@@ -620,6 +630,7 @@ function App() {
 
   const isTaxpayerPortal = user?.role === 'CONTRIBUYENTE';
 
+
   if (isTaxpayerPortal) {
     const currentTaxpayer = taxpayers.find(t => t.docId === user.username);
     if (!currentTaxpayer) return <div>Error: Datos de contribuyente no encontrados. <button onClick={handleLogout}>Salir</button></div>;
@@ -634,6 +645,14 @@ function App() {
         onLogout={handleLogout}
       />
     );
+  }
+
+  if (user.role === 'ALCALDE') {
+    return <AlcaldeDashboard user={user} onLogout={handleLogout} onCreateUser={handleCreateUser} />;
+  }
+
+  if (user.role === 'SECRETARIA') {
+    return <SecretariaDashboard user={user} onLogout={handleLogout} />;
   }
 
   // Admin Dashboard View
@@ -744,6 +763,7 @@ function App() {
           onClose={() => setShowRequestsModal(false)}
           allTransactions={transactions}
           updateTransactions={setTransactions}
+          onUpdateTaxpayer={handleUpdateTaxpayer}
         />
       )}
     </div>
@@ -751,12 +771,13 @@ function App() {
 }
 
 // Sub-component for Admin Modal to handle internal state cleanly
-const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions, updateTransactions }: {
+const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions, updateTransactions, onUpdateTaxpayer }: {
   requests: AdminRequest[],
   updateRequests: (r: AdminRequest[]) => void,
   onClose: () => void,
   allTransactions: Transaction[],
-  updateTransactions: (t: Transaction[]) => void
+  updateTransactions: (t: Transaction[]) => void,
+  onUpdateTaxpayer: (tp: Taxpayer) => void
 }) => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -788,6 +809,18 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
       } else {
         alert(`Advertencia: La transacción #${req.transactionId} no se encontró en el historial, pero la solicitud fue aprobada.`);
       }
+    }
+  };
+
+  const handleUpdateTaxpayerApproval = (req: AdminRequest) => {
+    if (req.payload && req.payload.id) {
+      // Apply update
+      onUpdateTaxpayer(req.payload as Taxpayer);
+      // Update Request Status
+      const updatedReqs = requests.map(r => r.id === req.id ? { ...r, status: 'APPROVED' as RequestStatus, responseNote: 'Edición de Contribuyente Aprobada' } : r);
+      updateRequests(updatedReqs);
+    } else {
+      alert("Error: No hay datos adjuntos para actualizar.");
     }
   };
 
@@ -825,9 +858,9 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                 }`}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : req.type === 'UPDATE_TAXPAYER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                       }`}>
-                      {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : 'ARREGLO DE PAGO'}
+                      {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : req.type === 'UPDATE_TAXPAYER' ? 'EDICIÓN DATOS' : 'ARREGLO DE PAGO'}
                     </span>
                     <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
                   </div>
@@ -848,6 +881,20 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                 {req.totalDebt && (
                   <div className="mt-2 text-sm bg-blue-50 p-2 rounded text-blue-800">
                     <span className="font-bold">Deuda Total a Negociar: B/. {req.totalDebt.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {req.type === 'UPDATE_TAXPAYER' && req.payload && (
+                  <div className="mt-2 text-xs bg-purple-50 p-2 rounded border border-purple-100 text-purple-900">
+                    <p className="font-bold mb-1">Datos Propuestos:</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li><span className="font-semibold">Nombre:</span> {req.payload.name}</li>
+                      <li><span className="font-semibold">ID/RUC:</span> {req.payload.docId}</li>
+                      <li><span className="font-semibold">Dirección:</span> {req.payload.address}</li>
+                      <li><span className="font-semibold">Teléfono:</span> {req.payload.phone}</li>
+                      {req.payload.corregimiento && <li><span className="font-semibold">Corregimiento:</span> {req.payload.corregimiento}</li>}
+                      {req.payload.balance !== undefined && <li><span className="font-semibold">Balance:</span> {req.payload.balance}</li>}
+                    </ul>
                   </div>
                 )}
 
@@ -919,7 +966,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                               </button>
                             </div>
                           </div>
-                        ) : (
+                        ) : req.type === 'VOID_TRANSACTION' ? (
                           // VOID Logic
                           <div className="flex gap-2">
                             <button
@@ -927,6 +974,22 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                               className="flex-1 bg-red-600 text-white py-2 rounded font-bold text-xs hover:bg-red-700 flex items-center justify-center"
                             >
                               <CheckCircle size={14} className="mr-1" /> Autorizar Anulación
+                            </button>
+                            <button
+                              onClick={() => setRejectingId(req.id)}
+                              className="bg-slate-100 text-slate-600 px-4 py-2 rounded font-bold text-xs hover:bg-slate-200 border border-slate-200 flex items-center justify-center"
+                            >
+                              <XCircle size={14} className="mr-1" /> Rechazar
+                            </button>
+                          </div>
+                        ) : (
+                          // UPDATE TAXPAYER Logic
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleUpdateTaxpayerApproval(req)}
+                              className="flex-1 bg-emerald-600 text-white py-2 rounded font-bold text-xs hover:bg-emerald-700 flex items-center justify-center"
+                            >
+                              <CheckCircle size={14} className="mr-1" /> Aprobar Cambios
                             </button>
                             <button
                               onClick={() => setRejectingId(req.id)}

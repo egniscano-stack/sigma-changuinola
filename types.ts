@@ -16,6 +16,7 @@ export enum TaxpayerStatus {
   ACTIVO = 'ACTIVO',
   SUSPENDIDO = 'SUSPENDIDO',
   BLOQUEADO = 'BLOQUEADO',
+  MOROSO = 'MOROSO',
 }
 
 export enum CommercialCategory {
@@ -44,6 +45,28 @@ export interface VehicleInfo {
   hasTransferDocuments: boolean; // Documentacion de traspaso
 }
 
+// Corregimientos defined by requirements
+export enum Corregimiento {
+  FINCA_4 = 'Finca 4',
+  GUABITO = 'Guabito',
+  FINCA_66 = 'Finca 66',
+  EMPALME = 'Empalme',
+  FINCA_51 = 'Finca 51',
+  FINCA_6 = 'Finca 6',
+  FINCA_LAS_30 = 'Finca Las 30',
+  FINCA_LAS_60 = 'Finca Las 60',
+  FINCA_12 = 'Finca 12',
+  LAS_TABLAS = 'Las Tablas',
+  LAS_DELICIAS = 'Las Delicias',
+  CHOCHIGRO = 'Chochigro',
+  EL_SILENCIO = 'El Silencio',
+  BARANCO = 'Baranco',
+  BARRIADA_4_ABRIL = 'Barriada 4 Abril',
+  LA_GLORIA = 'La Gloria',
+  CHANGUINOLA = 'Changuinola',
+  LA_MESA = 'La Mesa',
+}
+
 export interface Taxpayer {
   id: string;
   taxpayerNumber: string; // Unique Auto-Generated Number (e.g., 2024-0001)
@@ -57,6 +80,7 @@ export interface Taxpayer {
 
   // Contact & Location
   address: string;
+  corregimiento?: Corregimiento;
   phone: string;
   email: string;
 
@@ -64,6 +88,9 @@ export interface Taxpayer {
   hasCommercialActivity: boolean; // Available for both Natural & Juridica
   commercialCategory?: CommercialCategory;
   commercialName?: string; // Nombre del establecimiento
+
+  // Economic Status
+  balance?: number; // Monto por cobrar (Deuda)
 
   hasConstruction: boolean; // Active construction permit
   hasGarbageService: boolean; // Active garbage collection
@@ -122,7 +149,7 @@ export interface ExtractedInvoiceData {
 }
 
 // Authentication Types
-export type UserRole = 'ADMIN' | 'CAJERO' | 'CONTRIBUYENTE' | 'AUDITOR' | 'REGISTRO';
+export type UserRole = 'ADMIN' | 'CAJERO' | 'CONTRIBUYENTE' | 'AUDITOR' | 'REGISTRO' | 'ALCALDE' | 'SECRETARIA';
 
 export interface User {
   username: string;
@@ -131,8 +158,8 @@ export interface User {
   password?: string; // Included for demo purposes to allow creating users
 }
 
-// --- ADMIN REQUESTS (For Void / Arrangement) ---
-export type RequestType = 'VOID_TRANSACTION' | 'PAYMENT_ARRANGEMENT';
+// --- ADMIN REQUESTS (For Void / Arrangement / Taxpayer Edit) ---
+export type RequestType = 'VOID_TRANSACTION' | 'PAYMENT_ARRANGEMENT' | 'UPDATE_TAXPAYER';
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface AdminRequest {
@@ -150,6 +177,10 @@ export interface AdminRequest {
   // For ARRANGEMENT
   totalDebt?: number;
 
+  // For UPDATE_TAXPAYER
+  taxpayerId?: string;
+  payload?: Partial<Taxpayer>; // New data proposed
+
   // Admin Response
   responseNote?: string;
   approvedAmount?: number; // The amount to pay NOW
@@ -157,4 +188,21 @@ export interface AdminRequest {
   installments?: number; // Number of payments
 
   createdAt: string;
+}
+
+// --- AGENDA Items ---
+export interface AgendaItem {
+  id: string;
+  title: string;
+  description: string;
+  startDate: string; // ISO Date "YYYY-MM-DD"
+  startTime: string; // "HH:MM"
+  endDate?: string;
+  endTime?: string;
+  type: 'EVENTO' | 'REUNION' | 'TRAMITE' | 'VISITA';
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  location?: string;
+  createdBy: string; // User ID or Name
+  isImportant: boolean;
+  rejectionReason?: string;
 }
