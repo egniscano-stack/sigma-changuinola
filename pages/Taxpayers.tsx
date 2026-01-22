@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Taxpayer, TaxpayerType, CommercialCategory, Transaction, VehicleInfo, TaxpayerStatus, UserRole, Corregimiento, AdminRequest, RequestStatus } from '../types';
-import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle, Edit } from 'lucide-react';
+import { db } from '../services/db';
+import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle, Edit, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface TaxpayersProps {
   taxpayers: Taxpayer[];
@@ -27,73 +28,6 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   const [viewTaxpayer, setViewTaxpayer] = useState<Taxpayer | null>(null); // State for viewing full details
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
 
-  // ... (rest of state items: initialFormState, newTp, etc.)
-
-  // Load Taxpayer into Form for Editing
-  const handleEditInit = (tp: Taxpayer) => {
-    setNewTp(tp);
-    setIsEditing(true);
-    setEditingId(tp.id);
-    setSearchTerm('');
-    setIsSearching(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll to form
-  };
-
-  const handleCancelEdit = () => {
-    setNewTp(initialFormState);
-    setIsEditing(false);
-    setEditingId(null);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (isEditing && editingId) {
-      // Request Logic
-      const reason = prompt("Por favor, ingrese el motivo de la edición para la aprobación del Administrador:");
-      if (!reason) return;
-
-      const request: AdminRequest = {
-        id: `REQ-${Date.now()}`,
-        type: 'UPDATE_TAXPAYER',
-        status: 'PENDING',
-        requesterName: 'Cajero/Usuario', // Ideally pass current user name prop
-        taxpayerName: newTp.name || 'Desconocido',
-        description: reason,
-        taxpayerId: editingId,
-        payload: newTp as Taxpayer,
-        createdAt: new Date().toISOString()
-      };
-
-      onCreateRequest(request);
-      alert("Solicitud de edición enviada al Administrador.");
-      handleCancelEdit();
-
-    } else {
-      // Create Logic
-      const finalStatus = (newTp.balance && newTp.balance > 0) ? TaxpayerStatus.MOROSO : newTp.status;
-
-      onAdd({
-        ...newTp,
-        id: Date.now().toString(),
-        status: finalStatus,
-        taxpayerNumber: `${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-        createdAt: new Date().toISOString().split('T')[0]
-      } as Taxpayer);
-
-      setNewTp(initialFormState);
-      alert(finalStatus === TaxpayerStatus.MOROSO
-        ? "Contribuyente registrado como MOROSO debido al saldo inicial."
-        : "Contribuyente registrado exitosamente."
-      );
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  // ... (rest of component functions)
-
-
-
   // --- New Taxpayer Form State (Now Main View) ---
   // Initial empty state
   const initialFormState: Partial<Taxpayer> = {
@@ -113,12 +47,131 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   };
 
   const [newTp, setNewTp] = useState<Partial<Taxpayer>>(initialFormState);
+  const [files, setFiles] = useState<Record<string, File>>({});
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileChange = (key: string, file: File | null) => {
+    if (file) {
+      setFiles(prev => ({ ...prev, [key]: file }));
+    } else {
+      setFiles(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
 
   // Temporary state for adding a vehicle inside the modal
   const [tempVehicle, setTempVehicle] = useState<Partial<VehicleInfo>>({
     plate: '', brand: '', model: '', year: '', color: '', motorSerial: '', chassisSerial: '', hasTransferDocuments: false
   });
   const [showVehicleForm, setShowVehicleForm] = useState(false);
+
+  // Load Taxpayer into Form for Editing
+  const handleEditInit = (tp: Taxpayer) => {
+    setNewTp(tp);
+    setIsEditing(true);
+    setEditingId(tp.id);
+    setSearchTerm('');
+    setIsSearching(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll to form
+  };
+
+  const handleCancelEdit = () => {
+    setNewTp(initialFormState);
+    setIsEditing(false);
+    setEditingId(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUploading(true);
+
+    try {
+      // Upload Files First
+      const uploadedDocs: Record<string, string> = { ...newTp.documents }; // Keep existing
+
+      // Define base path
+      const docIdSafe = newTp.docId?.replace(/[^a-zA-Z0-9]/g, '_') || 'unknown';
+
+      for (const [key, file] of Object.entries(files)) {
+        const ext = file.name.split('.').pop();
+        const path = `taxpayers/${docIdSafe}/${key}_${Date.now()}.${ext}`;
+        try {
+          const url = await db.uploadTaxpayerDocument(file, path);
+          uploadedDocs[key] = url;
+        } catch (err) {
+          console.error(`Failed to upload ${key}:`, err);
+          alert(`Error subiendo ${key}. Intente de nuevo.`);
+          setIsUploading(false);
+          return;
+        }
+      }
+
+      const taxpayerData = {
+        ...newTp,
+        documents: uploadedDocs
+      };
+
+      if (isEditing && editingId) {
+        // Request Logic
+        const reason = prompt("Por favor, ingrese el motivo de la edición para la aprobación del Administrador:");
+        if (!reason) {
+          setIsUploading(false);
+          return;
+        }
+
+        const request: AdminRequest = {
+          id: `REQ-${Date.now()}`,
+          type: 'UPDATE_TAXPAYER',
+          status: 'PENDING',
+          requesterName: 'Cajero/Usuario',
+          taxpayerName: taxpayerData.name || 'Desconocido',
+          description: reason,
+          taxpayerId: editingId,
+          payload: taxpayerData as Taxpayer,
+          createdAt: new Date().toISOString()
+        };
+
+        onCreateRequest(request);
+        alert("Solicitud de edición enviada al Administrador.");
+        handleCancelEdit();
+        setFiles({});
+
+      } else {
+        // Create Logic
+        const finalStatus = (taxpayerData.balance && taxpayerData.balance > 0) ? TaxpayerStatus.MOROSO : taxpayerData.status;
+
+        onAdd({
+          ...taxpayerData,
+          id: Date.now().toString(),
+          status: finalStatus,
+          taxpayerNumber: `${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          createdAt: new Date().toISOString().split('T')[0]
+        } as Taxpayer);
+
+        setNewTp(initialFormState);
+        setFiles({});
+        alert(finalStatus === TaxpayerStatus.MOROSO
+          ? "Contribuyente registrado como MOROSO debido al saldo inicial."
+          : "Contribuyente registrado exitosamente."
+        );
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } catch (error) {
+      console.error("Error saving taxpayer:", error);
+      alert("Ocurrió un error al guardar.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // ... (rest of component functions)
+
+
+
+
 
   // Search Effect
   React.useEffect(() => {
@@ -607,9 +660,9 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                         <span className="ml-3 text-slate-700 font-medium">Documentación de Propiedad / Traspaso en Regla</span>
                       </label>
 
-                      <div className="flex gap-3">
-                        <button type="button" onClick={() => setShowVehicleForm(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200">Cancelar</button>
-                        <button type="button" onClick={handleAddVehicle} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-200">Guardar Vehículo</button>
+                      <div className="flex justify-end gap-3 mt-4">
+                        <button type="button" onClick={() => setShowVehicleForm(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button>
+                        <button type="button" onClick={handleAddVehicle} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md transform active:scale-95 transition-all">Agregar Vehículo</button>
                       </div>
                     </div>
                   )}
@@ -617,21 +670,130 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
               </div>
             </div>
 
-            {/* ACTIONS FOOTER */}
-            <div className="pt-6 border-t border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-end">
+            {/* SECTION 4: DOCUMENTS (New) */}
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+              <h4 className="text-lg font-bold text-slate-800 mb-6 flex items-center border-b border-slate-200 pb-3">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mr-3 text-slate-600 font-bold text-sm">3</div>
+                Documentación y Adjuntos
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Common Documents */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <ImageIcon size={16} className="text-indigo-500" /> Foto de Contribuyente
+                  </label>
+                  <input type="file" accept="image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    onChange={e => handleFileChange('taxpayer_photo', e.target.files?.[0] || null)}
+                  />
+                  {newTp.documents?.['taxpayer_photo'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <FileText size={16} className="text-indigo-500" /> Foto de Cédula
+                  </label>
+                  <input type="file" accept="image/*,.pdf" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    onChange={e => handleFileChange('id_card', e.target.files?.[0] || null)}
+                  />
+                  {newTp.documents?.['id_card'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                </div>
+
+                {/* Juridica */}
+                {newTp.type === TaxpayerType.JURIDICA && (
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm md:col-span-2 lg:col-span-3 lg:w-1/3">
+                    <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                      <FileText size={16} className="text-indigo-500" /> Registro Público (S.A.)
+                    </label>
+                    <input type="file" accept=".pdf,image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                      onChange={e => handleFileChange('public_registry', e.target.files?.[0] || null)}
+                    />
+                    {newTp.documents?.['public_registry'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                  </div>
+                )}
+
+                {/* Commercial */}
+                {newTp.hasCommercialActivity && (
+                  <>
+                    <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm ring-1 ring-indigo-50">
+                      <label className="block text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                        <Store size={16} className="text-indigo-500" /> Aviso de Operaciones
+                      </label>
+                      <input type="file" accept=".pdf,image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                        onChange={e => handleFileChange('operation_notice', e.target.files?.[0] || null)}
+                      />
+                      {newTp.documents?.['operation_notice'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm ring-1 ring-indigo-50">
+                      <label className="block text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                        <ImageIcon size={16} className="text-indigo-500" /> Foto Frontal Comercio
+                      </label>
+                      <input type="file" accept="image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                        onChange={e => handleFileChange('store_photo', e.target.files?.[0] || null)}
+                      />
+                      {newTp.documents?.['store_photo'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                    </div>
+                  </>
+                )}
+
+                {/* Garbage */}
+                {newTp.hasGarbageService && (
+                  <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm ring-1 ring-emerald-50">
+                    <label className="block text-sm font-bold text-emerald-900 mb-2 flex items-center gap-2">
+                      <MapPin size={16} className="text-emerald-500" /> Croquis Dirección (Residencial)
+                    </label>
+                    <input type="file" accept="image/*,.pdf" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                      onChange={e => handleFileChange('residence_sketch', e.target.files?.[0] || null)}
+                    />
+                    {newTp.documents?.['residence_sketch'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                  </div>
+                )}
+
+                {/* Vehicles */}
+                {(newTp.vehicles && newTp.vehicles.length > 0) && (
+                  <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm ring-1 ring-blue-50 md:col-span-2">
+                    <label className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+                      <Car size={16} className="text-blue-500" /> Traspaso / Registro Único Vehicular
+                    </label>
+                    <input type="file" accept="image/*,.pdf" multiple className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      onChange={e => handleFileChange('vehicle_docs', e.target.files?.[0] || null)}
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Puede subir uno o varios documentos para los vehículos.</p>
+                    {newTp.documents?.['vehicle_docs'] && <span className="text-xs text-green-600 font-bold mt-1 block">✔ Ya cargado</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-6 border-t border-slate-100">
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-6 py-3 mr-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
+                  disabled={isUploading}
+                >
+                  Cancelar
+                </button>
+              )}
               <button
-                type="button"
-                onClick={isEditing ? handleCancelEdit : () => setNewTp(initialFormState)}
-                className="w-full md:w-auto px-8 py-4 rounded-xl border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 active:scale-95 transition-all"
+                type="submit"
+                disabled={isUploading}
+                className={`px-8 py-3 rounded-xl font-bold text-white shadow-lg transform transition-all active:scale-95 flex items-center ${isEditing
+                  ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30'}`}
               >
-                {isEditing ? 'Cancelar Edición' : 'Limpiar / Cancelar'}
-              </button>
-              <button type="submit" className={`w-full md:w-auto px-10 py-4 rounded-xl font-bold text-lg shadow-xl transition-all active:scale-95 flex items-center justify-center ${isEditing
-                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200'
-                : 'bg-slate-900 hover:bg-emerald-600 text-white shadow-slate-200 hover:shadow-emerald-200'
-                }`}>
-                {isEditing ? <Edit size={24} className="mr-2" /> : <CheckCircle size={24} className="mr-2" />}
-                {isEditing ? 'Solicitar Edición' : 'Registrar Contribuyente'}
+                {isUploading ? (
+                  <>
+                    <Upload className="animate-bounce mr-2" size={20} />
+                    Subiendo Archivos...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="mr-2" size={20} />
+                    {isEditing ? 'Guardar Cambios' : 'Registrar Contribuyente'}
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -878,6 +1040,40 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                 </div>
 
               </div>
+
+              {/* 4. Documents (New) */}
+              {viewTaxpayer.documents && Object.keys(viewTaxpayer.documents).length > 0 && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 md:col-span-2 mt-8">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Expediente Digital</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {Object.entries(viewTaxpayer.documents).map(([key, url]) => (
+                      <a
+                        key={key}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all group text-center"
+                      >
+                        <div className="w-10 h-10 mx-auto bg-slate-100 group-hover:bg-white rounded-full flex items-center justify-center text-slate-500 group-hover:text-indigo-600 mb-2 transition-colors">
+                          {key.includes('photo') || key.includes('sketch') ? <ImageIcon size={20} /> : <FileText size={20} />}
+                        </div>
+                        <p className="text-xs font-bold text-slate-700 group-hover:text-indigo-800 capitalize">
+                          {{
+                            taxpayer_photo: 'Foto Contribuyente',
+                            id_card: 'Cédula Identidad',
+                            public_registry: 'Registro Público',
+                            operation_notice: 'Aviso Operaciones',
+                            store_photo: 'Fachada Comercio',
+                            residence_sketch: 'Croquis Dirección',
+                            vehicle_docs: 'Docs. Vehiculares'
+                          }[key] || key.replace(/_/g, ' ')}
+                        </p>
+                        <span className="text-[10px] text-indigo-400 mt-1 inline-block opacity-0 group-hover:opacity-100 transition-opacity">Ver Documento &rarr;</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer */}

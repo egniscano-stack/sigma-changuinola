@@ -23,7 +23,8 @@ export const mapTaxpayerFromDB = (data: any): Taxpayer => ({
     hasConstruction: data.has_construction,
     hasGarbageService: data.has_garbage_service,
     vehicles: [], // Vehicles loaded separately or joined
-    createdAt: data.created_at
+    createdAt: data.created_at,
+    documents: data.documents || {}
 });
 
 const mapTaxpayerToDB = (data: Taxpayer) => ({
@@ -43,7 +44,8 @@ const mapTaxpayerToDB = (data: Taxpayer) => ({
     commercial_name: data.commercialName,
     balance: data.balance || 0,
     has_construction: data.hasConstruction,
-    has_garbage_service: data.hasGarbageService
+    has_garbage_service: data.hasGarbageService,
+    documents: data.documents || {}
 });
 
 export const mapTransactionFromDB = (data: any): Transaction => ({
@@ -189,6 +191,22 @@ export const db = {
     deleteTaxpayer: async (id: string) => {
         const { error } = await supabase.from('taxpayers').delete().eq('id', id);
         if (error) throw error;
+    },
+
+    // STORAGE
+    uploadTaxpayerDocument: async (file: File, path: string) => {
+        const { data, error } = await supabase.storage
+            .from('taxpayer-documents')
+            .upload(path, file, { upsert: true });
+
+        if (error) throw error;
+
+        // Get Public URL
+        const { data: publicData } = supabase.storage
+            .from('taxpayer-documents')
+            .getPublicUrl(path);
+
+        return publicData.publicUrl;
     },
 
     // TRANSACTIONS

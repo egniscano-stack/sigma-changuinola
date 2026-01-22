@@ -97,8 +97,8 @@ export interface Taxpayer {
 
   // Assets
   vehicles?: VehicleInfo[]; // List of registered vehicles
-
-  createdAt: string;
+  createdAt?: string;
+  documents?: Record<string, string>; // Key: Doc Type, Value: URL
 }
 
 export interface Transaction {
