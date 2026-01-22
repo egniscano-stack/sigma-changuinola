@@ -96,6 +96,7 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
             // Optimistic update handled by realtime or we could manually append here for instant feedback
         } catch (e) {
             console.error("Failed to send", e);
+            alert("Error al enviar mensaje. Posiblemente la tabla de chat no existe en la base de datos.");
         } finally {
             setIsSending(false);
         }
@@ -183,8 +184,8 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
                         return (
                             <div key={msg.id} className={`flex mb-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] rounded-lg p-2 shadow-sm relative text-sm ${isMe
-                                        ? (isPrivate ? 'bg-[#e3f2fd] text-slate-800' : 'bg-[#dcf8c6] text-slate-800') // Blue tint for private sent, Green for general
-                                        : 'bg-white text-slate-800'
+                                    ? (isPrivate ? 'bg-[#e3f2fd] text-slate-800' : 'bg-[#dcf8c6] text-slate-800') // Blue tint for private sent, Green for general
+                                    : 'bg-white text-slate-800'
                                     } ${isMe ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
 
                                     {!isMe && (
