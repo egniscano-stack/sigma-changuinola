@@ -170,7 +170,7 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                        className="md:hidden p-1 hover:bg-white/10 rounded-lg transition-colors"
+                        className="lg:hidden p-1 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
@@ -183,7 +183,7 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
                     </div>
                 </div>
                 <button onClick={onLogout} className="flex items-center gap-2 text-indigo-200 hover:text-white transition-colors">
-                    <LogOut size={18} /> <span className="hidden md:inline">Salir</span>
+                    <LogOut size={18} /> <span className="hidden lg:inline">Salir</span>
                 </button>
             </header>
 
@@ -191,15 +191,15 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
                 {/* Mobile Menu Backdrop */}
                 {isMobileMenuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm"
+                        className="fixed inset-0 bg-black/50 z-20 lg:hidden backdrop-blur-sm"
                         onClick={() => setIsMobileMenuOpen(false)}
                     />
                 )}
 
                 {/* Sidebar - Desktop & Mobile Slide-in */}
                 <aside className={`
-                    absolute md:relative z-20 h-full w-64 bg-white shadow-md border-r border-slate-300 transition-transform duration-300 ease-in-out
-                    ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                    absolute lg:relative z-20 h-full w-64 bg-white shadow-md border-r border-slate-300 transition-transform duration-300 ease-in-out
+                    ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
                 `}>
                     <nav className="p-4 space-y-2">
                         <button
