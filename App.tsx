@@ -253,9 +253,9 @@ function App() {
           console.log("   - New Status:", upReq.status);
           console.log("   - Current User Role:", currentUser?.role);
 
-          // Notify if user is REGISTRO AND status changed to final
+          // Notify if user is REGISTRO or CAJERO AND status changed to final
           // We removed the 'old' check because Supabase might not send 'old' record without REPLICA IDENTITY FULL
-          if (currentUser?.role === 'REGISTRO') {
+          if (currentUser?.role === 'REGISTRO' || currentUser?.role === 'CAJERO') {
             if (upReq.status === 'APPROVED' || upReq.status === 'REJECTED') {
 
               console.log("✅ TRIGGERING NOTIFICATION TO UI for Request:", upReq.id);
