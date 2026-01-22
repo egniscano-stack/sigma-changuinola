@@ -40,21 +40,24 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
     // When switching recipient, clear their unread
     useEffect(() => {
         if (isOpen && selectedRecipient) {
+            // Clear Local State
             setUnreadCounts(prev => {
                 const newCounts = { ...prev, [selectedRecipient]: 0 };
                 updateGlobalCount(newCounts);
                 return newCounts;
             });
-            // TODO: Mark as read in DB if possible
+            // Clear DB State (Persistence)
+            db.markMessagesAsRead(currentUser.username, selectedRecipient);
+
         } else if (isOpen && selectedRecipient === null) {
-            // General chat cleared
+            // General chat cleared (Local Only)
             setUnreadCounts(prev => {
                 const newCounts = { ...prev, 'general': 0 };
                 updateGlobalCount(newCounts);
                 return newCounts;
             });
         }
-    }, [selectedRecipient, isOpen]);
+    }, [selectedRecipient, isOpen, currentUser.username]);
 
     // Load Initial Messages & Users
     useEffect(() => {
