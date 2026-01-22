@@ -824,30 +824,33 @@ function App() {
           <div className="flex items-center space-x-2 md:space-x-4">
 
             {/* Admin Notifications Bell */}
-            {/* Admin Notifications Bell */}
-            {user.role === 'ADMIN' && (
+            {/* Notifications Bell & Test Button (Admin & Registro) */}
+            {(user.role === 'ADMIN' || user.role === 'REGISTRO') && (
               <>
                 <button
-                  onClick={() => setShowRequestsModal(true)}
+                  onClick={() => user.role === 'ADMIN' ? setShowRequestsModal(true) : alert("No tienes notificaciones pendientes.")} // Simple fallback for now for Registro
                   className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors mr-2"
-                  title="Autorizaciones Pendientes"
+                  title="Notificaciones"
                 >
                   <Bell size={24} />
-                  {adminRequests.filter(r => r.status === 'PENDING').length > 0 && (
+                  {user.role === 'ADMIN' && adminRequests.filter(r => r.status === 'PENDING').length > 0 && (
                     <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
                       {adminRequests.filter(r => r.status === 'PENDING').length}
                     </span>
                   )}
+                  {/* For registro we could show count of recently approved/rejected if we tracked it, for now just the icon */}
                 </button>
 
-                {/* DEBUG: Test Notification Button */}
+                {/* Test Alert Button */}
                 <button
                   onClick={() => {
                     setNotificationToast({
                       title: 'Prueba de Sistema',
                       message: 'El sistema de notificaciones visuales está activo.'
                     });
-                    new Notification('Prueba de Sistema', { body: 'Notificación de escritorio activa.', icon: '/sigma-logo-final.png' });
+                    if (Notification.permission === 'granted') {
+                      new Notification('Prueba de Sistema', { body: 'Notificación de escritorio activa.', icon: '/sigma-logo-final.png' });
+                    }
                     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
                     audio.play().catch(e => console.log("Audio play blocked", e));
                   }}
