@@ -334,6 +334,15 @@ export const db = {
         }
     },
 
+    markGeneralChatRead: async (username: string) => {
+        const now = new Date().toISOString();
+        const { error } = await supabase.from('app_users')
+            .update({ last_read_general_chat: now })
+            .eq('username', username);
+
+        if (error) console.error("Error marking general chat read:", error);
+    },
+
     // REALTIME SUBSCRIPTION
     subscribeToChanges: (
         onTaxpayerChange: (payload: any) => void,
