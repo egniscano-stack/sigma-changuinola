@@ -351,6 +351,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
               onChange={handleFileChange}
               className="hidden"
               accept="image/*"
+              capture="environment" // Forces camera/gallery prompt on mobile
             />
           </div>
 

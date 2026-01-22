@@ -43,60 +43,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
   // 3. DEBT & DELINQUENCY CALCULATION (Dinero por Cobrar & Contribuyentes Morosos)
   const debtStats = useMemo(() => {
     let totalDebtAmount = 0;
-    const delinquentTaxpayers = new Set<string>(); // Use Set to count unique taxpayers
-
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1; // 1-12
+    let delinquentCount = 0;
 
     taxpayers.forEach(tp => {
-      let taxpayerDebt = 0;
-
-      // A. Commercial Debt
-      if (tp.hasCommercialActivity && tp.status === 'ACTIVO') {
-        const hasPaid = transactions.some(t => {
-          const tDate = new Date(t.date);
-          return t.taxpayerId === tp.id && t.taxType === TaxType.COMERCIO &&
-            tDate.getMonth() + 1 === currentMonth && tDate.getFullYear() === currentYear;
-        });
-        if (!hasPaid) {
-          taxpayerDebt += config.commercialRates[tp.commercialCategory || CommercialCategory.CLASE_C] || 0;
-        }
-      }
-
-      // B. Garbage Debt
-      if (tp.hasGarbageService && tp.status === 'ACTIVO') {
-        const hasPaid = transactions.some(t => {
-          const tDate = new Date(t.date);
-          return t.taxpayerId === tp.id && t.taxType === TaxType.BASURA &&
-            tDate.getMonth() + 1 === currentMonth && tDate.getFullYear() === currentYear;
-        });
-        if (!hasPaid) {
-          taxpayerDebt += tp.hasCommercialActivity ? config.garbageCommercialRate : config.garbageResidentialRate;
-        }
-      }
-
-      // C. Vehicle Debt (Only if renewal month is passed or current)
-      if (tp.vehicles && tp.vehicles.length > 0 && tp.status === 'ACTIVO') {
-        tp.vehicles.forEach(v => {
-          const lastDigit = parseInt(v.plate.slice(-1)) || 1;
-          const renewalMonth = lastDigit === 0 ? 10 : lastDigit;
-
-          if (currentMonth >= renewalMonth) { // Due or Overdue
-            const hasPaid = transactions.some(t => t.taxpayerId === tp.id && t.taxType === TaxType.VEHICULO && t.metadata?.plateNumber === v.plate && new Date(t.date).getFullYear() === currentYear);
-            if (!hasPaid) taxpayerDebt += config.plateCost;
-          }
-        });
-      }
-
-      if (taxpayerDebt > 0) {
-        totalDebtAmount += taxpayerDebt;
-        delinquentTaxpayers.add(tp.id);
+      // Logic: If taxpayer has a positive balance, they are delinquent
+      if ((tp.balance || 0) > 0) {
+        totalDebtAmount += tp.balance || 0;
+        delinquentCount++;
       }
     });
 
-    return { amount: totalDebtAmount, count: delinquentTaxpayers.size };
-  }, [taxpayers, transactions, config]);
+    return { amount: totalDebtAmount, count: delinquentCount };
+  }, [taxpayers]);
 
 
   // 4. CHART DATA PREPARATION
