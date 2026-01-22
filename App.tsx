@@ -59,6 +59,10 @@ function App() {
   const [pendingSyncTransactions, setPendingSyncTransactions] = useState<Transaction[]>([]);
   const [notificationToast, setNotificationToast] = useState<{ title: string, message: string } | null>(null);
 
+  // Chat State (Global Control)
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+
   // Check navigation mode (Portal vs Admin vs Landing)
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
 

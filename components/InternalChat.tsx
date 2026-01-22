@@ -201,7 +201,7 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
                             </div>
                             <h3 className="font-bold text-sm">Chat del Equipo</h3>
                         </div>
-                        <button onClick={() => setIsOpen(false)} className="md:hidden">
+                        <button onClick={onClose} className="md:hidden">
                             <X size={18} />
                         </button>
                     </div>
