@@ -50,46 +50,63 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
             db.markMessagesAsRead(currentUser.username, selectedRecipient);
 
         } else if (isOpen && selectedRecipient === null) {
-            // General chat cleared (Local Only)
+            // General chat cleared (Local + DB Persistence)
             setUnreadCounts(prev => {
                 const newCounts = { ...prev, 'general': 0 };
                 updateGlobalCount(newCounts);
                 return newCounts;
             });
+            db.markGeneralChatRead(currentUser.username);
         }
     }, [selectedRecipient, isOpen, currentUser.username]);
 
     // Load Initial Messages & Users
     useEffect(() => {
-        // Load Messages
-        db.getMessages().then(msgs => {
-            setMessages(msgs);
+        const loadData = async () => {
+            try {
+                const [msgs, users] = await Promise.all([db.getMessages(), db.getAppUsers()]);
 
-            // Calculate initial unreads (simple logic: count messages not from me, assuming all loaded are 'unread' if we don't have local persistent state, 
+                setMessages(msgs);
 
-            const initialCounts: Record<string, number> = {};
-            msgs.forEach(m => {
-                // If message is NOT from me 
-                if (m.sender_username !== currentUser.username) {
-                    // Logic: If I haven't read it? 
-                    // Since we don't have per-user 'read' status in this simple implementation widely used, 
-                    // we will assume initially 0 unread unless we persist it.
-                    // But for the sake of the demo, let's assume 'is_read' is valid.
-                    if (m.is_read === false) {
-                        const countKey = m.recipient_username ? m.sender_username : 'general';
-                        initialCounts[countKey] = (initialCounts[countKey] || 0) + 1;
+                // Filter available users for private chat
+                const others = users.filter(u => u.username !== currentUser.username && u.role !== 'ALCALDE');
+                setAvailableUsers(others);
+
+                // Find current user to get last_read_general_chat
+                const me = users.find(u => u.username === currentUser.username);
+                const myLastReadGeneral = me?.last_read_general_chat;
+
+                const initialCounts: Record<string, number> = {};
+                msgs.forEach(m => {
+                    // If message is NOT from me 
+                    if (m.sender_username !== currentUser.username) {
+                        const isPrivate = m.recipient_username === currentUser.username;
+                        const isGeneral = m.recipient_username === null;
+
+                        if (isPrivate) {
+                            // Private: Use is_read flag
+                            if (m.is_read === false) {
+                                initialCounts[m.sender_username] = (initialCounts[m.sender_username] || 0) + 1;
+                            }
+                        } else if (isGeneral) {
+                            // General: Use timestamp comparison
+                            const isUnread = myLastReadGeneral
+                                ? new Date(m.created_at) > new Date(myLastReadGeneral)
+                                : true; // If never read, assume unread
+
+                            if (isUnread) {
+                                initialCounts['general'] = (initialCounts['general'] || 0) + 1;
+                            }
+                        }
                     }
-                }
-            });
-            setUnreadCounts(initialCounts);
-            updateGlobalCount(initialCounts);
-        });
-
-        // Load Users
-        db.getAppUsers().then(users => {
-            const others = users.filter(u => u.username !== currentUser.username && u.role !== 'ALCALDE');
-            setAvailableUsers(others);
-        });
+                });
+                setUnreadCounts(initialCounts);
+                updateGlobalCount(initialCounts);
+            } catch (error) {
+                console.error("Error loading chat data:", error);
+            }
+        };
+        loadData();
     }, [currentUser.username]);
 
     // Realtime Subscription
