@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Taxpayer, TaxConfig, TaxType, CommercialCategory, PaymentMethod, Transaction, User, MunicipalityInfo } from '../types';
-import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, X, ArrowLeft, Save, User as UserIcon, MapPin, Download, AlertCircle, Lock } from 'lucide-react';
+import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, XCircle, ArrowLeft, Save, User as UserIcon, MapPin, Download, AlertCircle, Lock } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
@@ -39,6 +39,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   // Invoice State
   const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
+  const [showPazSalvo, setShowPazSalvo] = useState(false); // New State
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Request Management State
@@ -252,11 +253,19 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
 
   const handleFinishCollection = () => {
     setShowInvoice(false);
-    setPlateNumber('');
-    setConstArea(0);
-    setSearchTerm('');
-    setSelectedTaxpayerId('');
-    setPaymentMethod(PaymentMethod.EFECTIVO);
+
+    // Check if it was a Paz y Salvo transaction
+    if (lastTransaction?.metadata?.isPazSalvo) {
+      setShowPazSalvo(true);
+      // Don't clear taxpayer yet as we need it for the certificate
+    } else {
+      // Normal Reset
+      setPlateNumber('');
+      setConstArea(0);
+      setSearchTerm('');
+      setSelectedTaxpayerId('');
+      setPaymentMethod(PaymentMethod.EFECTIVO);
+    }
   };
 
   const printInvoice = () => {
@@ -308,6 +317,30 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       alert("Error al generar el PDF.");
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const downloadPazSalvo = async () => {
+    const element = document.getElementById('paz-salvo-certificate');
+    if (!element) return;
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('l', 'mm', 'letter');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Paz_y_Salvo_${activeTaxpayer?.docId}.pdf`);
+    } catch (error) {
+      console.error("Error generating Certificate", error);
+      alert("Error al generar el documento: " + (error as any).message);
     }
   };
 
@@ -380,6 +413,101 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-24">
+
+      {/* --- PAZ Y SALVO MODAL --- */}
+      {showPazSalvo && activeTaxpayer && (
+        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-4 backdrop-blur-md overflow-y-auto">
+          <style>{`
+                        @media print {
+                            @page { size: landscape; margin: 0; }
+                            body * { visibility: hidden; }
+                            #paz-salvo-certificate, #paz-salvo-certificate * { visibility: visible; }
+                            #paz-salvo-certificate { 
+                                position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+                                width: 100%; height: 100%;
+                                margin: 0; padding: 0; box-shadow: none; border: none; 
+                                transform: none;
+                            }
+                            .no-print { display: none !important; }
+                            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                        }
+                    `}</style>
+          <div className="flex justify-between w-full max-w-5xl mb-4 text-white no-print">
+            <h3 className="text-xl font-bold flex items-center gap-2"><CheckCircle /> Documento Oficial (Formato Horizontal)</h3>
+            <button onClick={() => setShowPazSalvo(false)} className="hover:text-red-400"><XCircle className="text-white" size={24} /></button>
+          </div>
+          <div className="flex-1 w-full flex flex-col items-center justify-center overflow-y-auto py-4 min-h-0">
+            <div className="relative flex-shrink-0 my-4 transform-gpu">
+              <div id="paz-salvo-certificate" className="bg-white w-[279.4mm] h-[215.9mm] p-16 shadow-2xl relative text-slate-900 font-serif mx-auto scale-[0.35] sm:scale-[0.45] md:scale-[0.6] lg:scale-[0.75] origin-top flex flex-col justify-between shrink-0">
+                {/* Watermark */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none select-none overflow-hidden">
+                  <div className="text-[20rem] font-black -rotate-12 text-slate-900 whitespace-nowrap">SIGMA</div>
+                </div>
+                {/* Certificate Header */}
+                <div className="text-center w-full border-b-2 border-emerald-800 pb-2 mb-2 relative z-10 flex flex-col items-center">
+                  <img src={`${import.meta.env.BASE_URL}municipio-logo-bw.png`} alt="Logo" className="h-16 w-auto mb-1 grayscale object-contain" />
+                  <h1 className="text-lg font-bold uppercase tracking-widest text-slate-900 leading-none">República de Panamá</h1>
+                  <h2 className="text-base font-bold text-emerald-800 uppercase tracking-wider leading-tight">Municipio de Changuinola</h2>
+                  <p className="text-[10px] font-semibold text-slate-600 mt-0.5 uppercase tracking-wide">Departamento de Tesorería Municipal</p>
+                </div>
+                <h2 className="text-3xl font-extrabold uppercase my-2 tracking-widest text-slate-900 decoration-4 underline decoration-emerald-500 underline-offset-4 relative z-10 text-center">Paz y Salvo</h2>
+                {/* Certificate Body */}
+                <div className="w-full relative z-10 text-justify leading-snug px-4 flex-1 flex flex-col justify-center">
+                  <p className="text-base mb-2"><strong>A QUIEN CONCIERNA:</strong></p>
+                  <p className="text-base mb-2 indent-8">La Tesorería Municipal de Changuinola CERTIFICA por este medio que el contribuyente descrito a continuación, se encuentra legalmente registrado en nuestra base de datos:</p>
+                  <div className="bg-slate-50 border border-slate-200 p-3 my-2 rounded-lg shadow-sm mx-4">
+                    <div className="flex justify-between items-center text-center">
+                      <div className="text-left">
+                        <p className="text-[9px] uppercase font-bold text-slate-400 mb-0.5">Nombre / Razón Social</p>
+                        <p className="text-xl font-bold text-slate-900 leading-tight">{activeTaxpayer.name}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] uppercase font-bold text-slate-400 mb-0.5">Cédula / RUC</p>
+                        <p className="text-xl font-mono font-bold text-slate-900 leading-tight">{activeTaxpayer.docId}</p>
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-200 mt-2 pt-2 flex justify-between items-center">
+                      <span className="text-sm text-slate-500 font-mono">N° Contribuyente: {activeTaxpayer.taxpayerNumber}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span className="text-xs font-bold text-emerald-700 uppercase">Estado: SOLVENTE</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-base mb-1 indent-8 mt-2">Por lo cual, se le declara <strong>PAZ Y SALVO</strong> con el Tesoro Municipal en concepto de Impuestos, Tasas, Derechos y Contribuciones Municipales hasta la fecha de emisión.</p>
+                  <p className="text-sm text-right mt-4 italic text-slate-600">Válido por 30 días calendario.<br />Dado en Changuinola, el {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.</p>
+                </div>
+                {/* Footer / Signatures */}
+                <div className="w-full mt-2 pt-2 border-t border-slate-300 relative z-10 flex justify-between items-end">
+                  <div className="text-center">
+                    <div className="h-20 w-20 bg-white border border-slate-200 mb-1 mx-auto flex items-center justify-center p-1">
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://changuinola.gob.pa/verify/${activeTaxpayer.id}/${Date.now()}`} alt="QR Verificación" className="w-full h-full object-contain" crossOrigin="anonymous" />
+                    </div>
+                    <p className="text-[7px] font-mono text-slate-500 tracking-wider">ESCANEAR PARA VERIFICAR<br />{`SIGMA-${Date.now().toString().slice(-8)}`}</p>
+                  </div>
+                  <div className="text-center flex-1 px-4">
+                    <p className="text-[8px] text-slate-400 leading-tight">Generado por Plataforma SIGMA Digital.<br />Válido por Ley 83 de 2012 (Gobierno Electrónico).<br />Verificar autenticidad escaneando el código QR.<br /><strong>Vence: {new Date(new Date().setDate(new Date().getDate() + 30)).toLocaleDateString('es-ES')}</strong></p>
+                  </div>
+                  <div className="text-center w-48">
+                    <div className="border-b-2 border-slate-900 mb-1 h-10 flex items-end justify-center pb-1">
+                      <span className="font-script text-lg text-blue-900 opacity-80 rotate-[-5deg]">Tesorero Municipal</span>
+                    </div>
+                    <p className="font-bold text-[9px] uppercase">Tesorero Municipal</p>
+                    <p className="text-[8px] text-slate-500">Autoridad Competente</p>
+                  </div>
+                </div>
+                <div className="absolute top-0 left-0 right-0 h-2 bg-emerald-800 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] print:h-2"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-2 bg-emerald-800 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] print:h-2"></div>
+              </div>
+            </div>
+          </div>
+          <div className="w-full flex justify-center gap-4 bg-black/50 p-4 rounded-xl backdrop-blur-sm z-50 sticky bottom-4 no-print shrink-0 mt-[-100px] sm:mt-[-150px] md:mt-[-200px] lg:mt-[-100px]">
+            <button onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center gap-2"><Printer size={20} /> Imprimir</button>
+            <button onClick={downloadPazSalvo} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center gap-2"><Download size={20} /> Descargar PDF</button>
+            <button onClick={() => setShowPazSalvo(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform active:scale-95">Cerrar</button>
+          </div>
+        </div>
+      )}
 
       {/* --- INVOICE MODAL (COMPACT & OPTIMIZED) --- */}
       {showInvoice && lastTransaction && activeTaxpayer && (
