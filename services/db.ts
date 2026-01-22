@@ -319,6 +319,21 @@ export const db = {
         return data as ChatMessage;
     },
 
+    markMessagesAsRead: async (currentUserKv: string, senderKv: string | null) => {
+        // Mark messages SENT BY senderKv TO currentUserKv as read.
+        // If senderKv is null (General), we skip DB update for now or implement logic if table supports it.
+        // Currently 'chat_messages' has 'is_read'. This works fine for 1-on-1.
+        if (senderKv) {
+            const { error } = await supabase.from('chat_messages')
+                .update({ is_read: true })
+                .eq('recipient_username', currentUserKv)
+                .eq('sender_username', senderKv)
+                .eq('is_read', false);
+
+            if (error) console.error("Error marking as read:", error);
+        }
+    },
+
     // REALTIME SUBSCRIPTION
     subscribeToChanges: (
         onTaxpayerChange: (payload: any) => void,
