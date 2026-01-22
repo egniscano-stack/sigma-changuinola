@@ -8,9 +8,10 @@ interface InternalChatProps {
     isOpen: boolean;
     onClose: () => void;
     onUnreadChange: (count: number) => void;
+    onShowToast: (toast: { title: string, message: string }) => void;
 }
 
-export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen, onClose, onUnreadChange }) => {
+export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen, onClose, onUnreadChange, onShowToast }) => {
     // const [isOpen, setIsOpen] = useState(false); // Controlled by Parent
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [newMessage, setNewMessage] = useState('');
@@ -25,7 +26,7 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFile, setSelectedFile] = useState<{ name: string, data: string, type: 'image' | 'file' } | null>(null);
 
-    // In-App Notification State
+    // In-App Notification State (Keep local for now, but we will mostly use the global one)
     const [chatToast, setChatToast] = useState<{ sender: string, text: string } | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -121,12 +122,19 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
                                 const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
                                 audio.play().catch(e => console.log(e));
 
-                                // Notification Toast
-                                setChatToast({
-                                    sender: newMsg.sender_name,
-                                    text: newMsg.content || '📎 Archivo adjunto'
+                                // GLOBAL TOAST NOTIFICATION (Request Style)
+                                onShowToast({
+                                    title: 'Nuevo Mensaje de Chat',
+                                    message: `${newMsg.sender_name || 'Usuario'} dice: ${newMsg.content || '📎 Archivo adjunto'}`
                                 });
-                                setTimeout(() => setChatToast(null), 5000);
+
+                                // OS Notification
+                                if (Notification.permission === 'granted') {
+                                    new Notification(`Nuevo mensaje de ${newMsg.sender_name}`, {
+                                        body: newMsg.content || '📎 Archivo adjunto',
+                                        icon: '/sigma-logo-final.png'
+                                    });
+                                }
                             }
                         }
                     }

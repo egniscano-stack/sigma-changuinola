@@ -927,6 +927,7 @@ function App() {
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
           onUnreadChange={setChatUnreadCount}
+          onShowToast={setNotificationToast}
         />
       )}
       {/* --- DYNAMIC IN-APP NOTIFICATION TOAST --- */}
