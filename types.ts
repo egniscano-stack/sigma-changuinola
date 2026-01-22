@@ -209,3 +209,16 @@ export interface AgendaItem {
   isImportant: boolean;
   rejectionReason?: string;
 }
+
+// --- CHAT SYSTEM ---
+export interface ChatMessage {
+  id: string;
+  sender_username: string;
+  sender_name: string;
+  recipient_username?: string | null; // Null for public channel
+  content: string;
+  attachment_url?: string;
+  attachment_type?: 'image' | 'file';
+  created_at: string;
+  is_read: boolean;
+}

@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo, AgendaItem, Corregimiento, AdminRequest } from '../types';
+import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo, AgendaItem, Corregimiento, AdminRequest, ChatMessage } from '../types';
 
 // --- DATA MAPPING HELPERS (Snake_case DB <-> CamelCase App) ---
 
@@ -303,12 +303,29 @@ export const db = {
         return db.getTransactions();
     },
 
+    // --- CHAT SYSTEM ---
+    getMessages: async (): Promise<ChatMessage[]> => {
+        const { data, error } = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true }).limit(100);
+        if (error) {
+            console.error("Error fetching messages:", error);
+            return [];
+        }
+        return data as ChatMessage[];
+    },
+
+    sendMessage: async (msg: Omit<ChatMessage, 'id' | 'created_at' | 'is_read'>) => {
+        const { data, error } = await supabase.from('chat_messages').insert(msg).select().single();
+        if (error) throw error;
+        return data as ChatMessage;
+    },
+
     // REALTIME SUBSCRIPTION
     subscribeToChanges: (
         onTaxpayerChange: (payload: any) => void,
         onTransactionChange: (payload: any) => void,
         onAgendaChange?: (payload: any) => void,
-        onAdminRequestChange?: (payload: any) => void
+        onAdminRequestChange?: (payload: any) => void,
+        onChatChange?: (payload: any) => void
     ) => {
         const taxpayersSubscription = supabase
             .channel('public:taxpayers')
@@ -344,11 +361,22 @@ export const db = {
                 .subscribe();
         }
 
+        let chatSubscription: any = null;
+        if (onChatChange) {
+            chatSubscription = supabase
+                .channel('public:chat_messages')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (payload) => {
+                    onChatChange(payload);
+                })
+                .subscribe();
+        }
+
         return () => {
             supabase.removeChannel(taxpayersSubscription);
             supabase.removeChannel(transactionsSubscription);
             if (agendaSubscription) supabase.removeChannel(agendaSubscription);
             if (adminReqSubscription) supabase.removeChannel(adminReqSubscription);
+            if (chatSubscription) supabase.removeChannel(chatSubscription);
         };
     }
 };
