@@ -639,7 +639,7 @@ function App() {
           />
         );
       case 'scanner':
-        return user?.role === 'ADMIN' ? (
+        return (user?.role === 'ADMIN' || user?.role === 'CAJERO') ? (
           <InvoiceScanner
             onScanComplete={(newTx) => setTransactions([newTx, ...transactions])}
           />
