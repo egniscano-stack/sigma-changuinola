@@ -56,6 +56,7 @@ function App() {
   // Offline Logic State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingSyncTransactions, setPendingSyncTransactions] = useState<Transaction[]>([]);
+  const [notificationToast, setNotificationToast] = useState<{ title: string, message: string } | null>(null);
 
   // Check navigation mode (Portal vs Admin vs Landing)
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
@@ -213,9 +214,19 @@ function App() {
                 icon: '/sigma-logo-final.png'
               });
             }
-            // Audio Alert (Optional)
-            // const audio = new Audio('/notification.mp3'); 
-            // audio.play().catch(e => console.log("Audio play blocked"));
+
+            // In-App Dynamic Visual Notification
+            setNotificationToast({
+              title: 'Nueva Solicitud Recibida',
+              message: `${rawReq.requester_name || 'Cajero'} solicita: ${rawReq.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Edición/Arreglo'}`
+            });
+
+            // Auto-hide after 5 seconds
+            setTimeout(() => setNotificationToast(null), 5000);
+
+            // Audio Alert
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+            audio.play().catch(e => console.log("Audio play blocked", e));
           }
         }
       }
@@ -825,6 +836,20 @@ function App() {
           onUpdateTaxpayer={handleUpdateTaxpayer}
         />
       )}
+      {/* --- DYNAMIC IN-APP NOTIFICATION TOAST --- */}
+      {notificationToast && (
+        <div className="fixed top-4 right-4 z-[60] bg-slate-900 border-l-4 border-emerald-500 text-white p-4 rounded-lg shadow-2xl animate-slide-in-right flex items-start max-w-sm">
+          <Bell className="text-emerald-400 mr-3 mt-1" size={24} />
+          <div className="flex-1">
+            <h4 className="font-bold text-base mb-1">{notificationToast.title}</h4>
+            <p className="text-sm text-slate-300">{notificationToast.message}</p>
+          </div>
+          <button onClick={() => setNotificationToast(null)} className="ml-2 text-slate-400 hover:text-white">
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -943,7 +968,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
           ) : (
             [...requests].reverse().map(req => (
               <div key={req.id} className={`bg - white p - 4 rounded - lg shadow - sm border - l - 4 ${req.status === 'PENDING' ? 'border-amber-500' :
-                  req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
+                req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
                 } `}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
@@ -954,7 +979,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                     <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
                   </div>
                   <span className={`text - xs font - bold ${req.status === 'PENDING' ? 'text-amber-500' :
-                      req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
+                    req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
                     } `}>
                     {req.status === 'PENDING' ? 'PENDIENTE' : req.status === 'APPROVED' ? 'APROBADO' : 'RECHAZADO'}
                   </span>
@@ -1116,5 +1141,4 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
     </div>
   );
 };
-
 export default App;
