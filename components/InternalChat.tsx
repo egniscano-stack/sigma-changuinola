@@ -5,13 +5,16 @@ import { db } from '../services/db';
 
 interface InternalChatProps {
     currentUser: User;
+    isOpen: boolean;
+    onClose: () => void;
+    onUnreadChange: (count: number) => void;
 }
 
-export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
-    const [isOpen, setIsOpen] = useState(false);
+export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen, onClose, onUnreadChange }) => {
+    // const [isOpen, setIsOpen] = useState(false); // Controlled by Parent
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [newMessage, setNewMessage] = useState('');
-    const [unreadCount, setUnreadCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(0); // Kept locally to track count logic, but sync with parent
     const [isSending, setIsSending] = useState(false);
 
     // Private Chat State
@@ -27,22 +30,29 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Load Initial Messages & Users
+    // Sync Reset Unread
     useEffect(() => {
         if (isOpen) {
-            // Load Messages
-            db.getMessages().then(msgs => {
-                setMessages(msgs);
-                setChatToast(null); // Clear toasts if opened
-            });
-
-            // Load Users for private chat
-            db.getAppUsers().then(users => {
-                const others = users.filter(u => u.username !== currentUser.username && u.role !== 'ALCALDE');
-                setAvailableUsers(others);
-            });
+            setUnreadCount(0);
+            onUnreadChange(0);
         }
-    }, [isOpen, currentUser.username]);
+    }, [isOpen, onUnreadChange]);
+
+    // Load Initial Messages & Users
+    useEffect(() => {
+        // Load Messages Always (to get unread count even if closed)
+        db.getMessages().then(msgs => {
+            setMessages(msgs);
+            // Calculate unread? We depend on realtime for new ones mostly, but we could check last read time if we had it.
+            // For now, assume 0 on load until real-time comes in.
+        });
+
+        // Load Users
+        db.getAppUsers().then(users => {
+            const others = users.filter(u => u.username !== currentUser.username && u.role !== 'ALCALDE');
+            setAvailableUsers(others);
+        });
+    }, [currentUser.username]);
 
     // Realtime Subscription
     useEffect(() => {
@@ -59,7 +69,11 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
 
                     if (!isOpen && newMsg.sender_username !== currentUser.username) {
                         if (isForMe || isGeneral) {
-                            setUnreadCount(prev => prev + 1);
+                            setUnreadCount(prev => {
+                                const newCount = prev + 1;
+                                onUnreadChange(newCount);
+                                return newCount;
+                            });
 
                             // Audio
                             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
@@ -86,7 +100,7 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
             }
         );
         return () => unsub();
-    }, [isOpen, currentUser.username]);
+    }, [isOpen, currentUser.username, onUnreadChange]);
 
 
     // Auto-scroll
@@ -146,12 +160,14 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
         }
     };
 
-    // Filter messages
+    // Filter messages for current view
     const activeMessages = messages.filter(msg => {
         if (selectedRecipient) {
+            // Private Conversation: (Me -> Them) OR (Them -> Me)
             return (msg.sender_username === currentUser.username && msg.recipient_username === selectedRecipient) ||
                 (msg.sender_username === selectedRecipient && msg.recipient_username === currentUser.username);
         } else {
+            // General Chat: recipient is null
             return msg.recipient_username === null;
         }
     });
@@ -160,35 +176,18 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
 
     return (
         <>
-            {/* Floating Button with Unread Badge */}
-            <div className="fixed bottom-6 right-6 z-[100] print:hidden flex flex-col items-end gap-2">
-
-                {/* TOAST POPUP */}
-                {!isOpen && chatToast && (
-                    <div
-                        onClick={() => setIsOpen(true)}
-                        className="bg-white p-3 rounded-lg shadow-xl border-l-4 border-emerald-500 mb-2 cursor-pointer animate-slide-in-right max-w-xs"
-                    >
-                        <div className="flex items-center gap-2 mb-1">
-                            <MessageCircle size={16} className="text-emerald-600" />
-                            <span className="font-bold text-xs text-slate-700">{chatToast.sender} dice:</span>
-                        </div>
-                        <p className="text-xs text-slate-600 truncate">{chatToast.text}</p>
-                    </div>
-                )}
-
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className={`${isOpen ? 'bg-red-500 rotate-90' : 'bg-emerald-600 hover:bg-emerald-700'} text-white p-4 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-110 flex items-center justify-center`}
+            {/* TOAST POPUP */}
+            {!isOpen && chatToast && (
+                <div
+                    className="fixed bottom-24 right-6 z-[100] bg-white p-3 rounded-lg shadow-xl border-l-4 border-emerald-500 mb-2 cursor-pointer animate-slide-in-right max-w-xs"
                 >
-                    {isOpen ? <X size={28} /> : <MessageCircle size={32} />}
-                    {!isOpen && unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 border-2 border-white text-white text-xs font-bold h-6 w-6 rounded-full flex items-center justify-center animate-bounce">
-                            {unreadCount}
-                        </span>
-                    )}
-                </button>
-            </div>
+                    <div className="flex items-center gap-2 mb-1">
+                        <MessageCircle size={16} className="text-emerald-600" />
+                        <span className="font-bold text-xs text-slate-700">{chatToast.sender} dice:</span>
+                    </div>
+                    <p className="text-xs text-slate-600 truncate">{chatToast.text}</p>
+                </div>
+            )}
 
             {/* Chat Window */}
             <div className={`fixed bottom-24 right-6 w-80 md:w-96 bg-white rounded-2xl shadow-2xl z-[100] transition-all duration-300 transform origin-bottom-right border border-slate-200 overflow-hidden flex flex-col ${isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-75 opacity-0 translate-y-10 pointer-events-none'}`} style={{ height: '520px' }}>
@@ -240,8 +239,8 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser }) => {
                         return (
                             <div key={msg.id} className={`flex mb-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] rounded-lg p-2 shadow-sm relative text-sm ${isMe
-                                        ? (isPrivate ? 'bg-[#e3f2fd] text-slate-800' : 'bg-[#dcf8c6] text-slate-800')
-                                        : 'bg-white text-slate-800'
+                                    ? (isPrivate ? 'bg-[#e3f2fd] text-slate-800' : 'bg-[#dcf8c6] text-slate-800')
+                                    : 'bg-white text-slate-800'
                                     } ${isMe ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
 
                                     {!isMe && (
