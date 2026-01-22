@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
@@ -60,6 +60,10 @@ function App() {
 
   // Check navigation mode (Portal vs Admin vs Landing)
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
+
+  // Ref to track user in callbacks without re-subscribing
+  const userRef = useRef<User | null>(null);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   // Request Notification Permissions on Mount
   useEffect(() => {
@@ -204,15 +208,21 @@ function App() {
         db.getAdminRequests().then(reqs => setAdminRequests(reqs));
 
         // SHOW NOTIFICATION
-        if (payload.eventType === 'INSERT' && user?.role === 'ADMIN') {
+        // Use Ref to avoid stale closure
+        const currentUser = userRef.current;
+        console.log("Realtime Event:", payload.eventType, "User Role:", currentUser?.role);
+
+        if (payload.eventType === 'INSERT' && currentUser?.role === 'ADMIN') {
           const rawReq = payload.new;
           if (rawReq.status === 'PENDING') {
             // Browser Notification
             if (Notification.permission === 'granted') {
-              new Notification('Nueva Solicitud Administrativa', {
-                body: `Solicitud de ${rawReq.requester_name || 'Cajero'}: ${rawReq.type}`,
-                icon: '/sigma-logo-final.png'
-              });
+              try {
+                new Notification('Nueva Solicitud Administrativa', {
+                  body: `Solicitud de ${rawReq.requester_name || 'Cajero'}`,
+                  icon: '/sigma-logo-final.png'
+                });
+              } catch (e) { console.error("Notification API Error", e); }
             }
 
             // In-App Dynamic Visual Notification

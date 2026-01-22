@@ -158,18 +158,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
               key={filter}
               onClick={() => setTimeFilter(filter as any)}
               className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${timeFilter === filter
-                  ? 'bg-slate-900 text-white shadow-md'
-                  : 'text-slate-500 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-md'
+                : 'text-slate-500 hover:bg-slate-50'
                 }`}
             >
               {filter === 'DAY' ? 'Hoy' : filter === 'WEEK' ? 'Semana' : 'Mes'}
             </button>
           ))}
         </div>
-      </div>
+
+        {/* Helper for testing notifications */}
+        <button
+          onClick={() => {
+            // Dispatch a fake storage event or just call alert? No, we need to trigger the TOAST state in App.tsx. 
+            // Since this is a child component, we can't easily set App state unless passed.
+            // BUT we can trigger a Notification API test directly.
+            new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
+            alert("Se ha enviado una notificación de prueba al navegador. Si no la ves, revisa los permisos del sitio.");
+          }}
+          className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-300"
+        >
+          Test Notificación
+        </button>
+      </div >
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      < div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6" >
         <StatCard
           title="Recaudación Total"
           value={`B/. ${totalRevenue.toFixed(2)}`}
@@ -199,13 +213,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
           icon={AlertCircle}
           color="bg-red-500 text-red-600"
         />
-      </div>
+      </div >
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      < div className="grid grid-cols-1 lg:grid-cols-3 gap-6" >
 
         {/* Revenue Chart */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 lg:col-span-2">
+        < div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 lg:col-span-2" >
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
             <TrendingUp size={20} className="mr-2 text-slate-400" />
             Tendencia de Recaudación
@@ -228,10 +242,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
               )}
             </ResponsiveContainer>
           </div>
-        </div>
+        </div >
 
         {/* Tax Distribution */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        < div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100" >
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
             <PieChart size={20} className="mr-2 text-slate-400" />
             Distribución
@@ -267,11 +281,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
               </div>
             ))}
           </div>
-        </div>
-      </div>
+        </div >
+      </div >
 
       {/* Recent Transactions List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+      < div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden" >
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <h3 className="text-lg font-bold text-slate-800">Últimas Transacciones</h3>
           <button className="text-sm text-emerald-600 font-bold hover:underline">Ver todas</button>
@@ -313,8 +327,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
             </tbody>
           </table>
         </div>
-      </div>
+      </div >
 
-    </div>
+    </div >
   );
 };
