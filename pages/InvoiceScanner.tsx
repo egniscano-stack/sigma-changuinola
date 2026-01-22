@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import Tesseract from 'tesseract.js'; // Local OCR
+import { createWorker } from 'tesseract.js'; // Local OCR V5+
 import { Transaction, ExtractedInvoiceData, TaxType, PaymentMethod, TaxpayerType, TaxpayerStatus } from '../types';
 import { Camera, Upload, CheckCircle, AlertTriangle, Loader2, FileText, X, Save } from 'lucide-react';
 import { db } from '../services/db';
@@ -133,27 +133,38 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
 
   const handleAnalyze = async () => {
     if (!image) return;
+
     setLoading(true);
     setError(null);
-    try {
-      // Use Tesseract.js directly
-      const result = await Tesseract.recognize(
-        image,
-        'eng', // English checks seem to work ok for numbers, 'spa' is better but requires download. 
-        // I'll stick to 'eng' default or 'spa' if user environment allows. 
-        // For safety in offline/restricted envs, we start with minimal. 
-        // Actually, let's try 'spa' if possible, but 'eng' is safer for chars.
-        {
-          logger: m => console.log(m)
-        }
-      );
+    setData(null);
 
-      const extracted = extractDataFromText(result.data.text);
+    let worker: any = null;
+
+    try {
+      console.log("Initializing Worker...");
+      // Initialize Worker for English (faster, good for numbers)
+      worker = await createWorker('eng');
+
+      console.log("Worker Ready. Recognizing...");
+      const ret = await worker.recognize(image);
+      console.log("OCR Result:", ret);
+
+      const extracted = extractDataFromText(ret.data.text);
       setData(extracted);
 
+      await worker.terminate();
+
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Error al procesar la imagen con OCR local.');
+      console.error("OCR Error Details:", err);
+      // Construct a helpful message
+      let msg = err.message || JSON.stringify(err);
+      if (!msg || msg === '{}') msg = "Incompatible con el navegador o falta Worker";
+
+      setError(`Fallo OCR: ${msg}. Intente recargar la página.`);
+
+      if (worker) {
+        try { await worker.terminate(); } catch (e) { }
+      }
     } finally {
       setLoading(false);
     }
