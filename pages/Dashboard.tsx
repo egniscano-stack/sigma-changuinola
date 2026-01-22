@@ -41,20 +41,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
   const transactionCount = filteredTransactions.length;
 
   // 3. DEBT & DELINQUENCY CALCULATION (Dinero por Cobrar & Contribuyentes Morosos)
+  // 3. DEBT & DELINQUENCY CALCULATION (Dinero por Cobrar & Contribuyentes Morosos)
   const debtStats = useMemo(() => {
     let totalDebtAmount = 0;
     let delinquentCount = 0;
 
-    taxpayers.forEach(tp => {
-      // Logic: If taxpayer has a positive balance, they are delinquent
-      if ((tp.balance || 0) > 0) {
-        totalDebtAmount += tp.balance || 0;
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+
+    taxpayers.forEach(t => {
+      let tpDebt = t.balance || 0;
+
+      // Commercial Debt
+      if (t.hasCommercialActivity && t.status !== 'BLOQUEADO') {
+        const hasPaid = transactions.some(tx =>
+          tx.taxpayerId === t.id &&
+          tx.taxType === TaxType.COMERCIO &&
+          new Date(tx.date).getMonth() + 1 === currentMonth &&
+          new Date(tx.date).getFullYear() === currentYear
+        );
+        if (!hasPaid) {
+          tpDebt += config.commercialBaseRate; // Matching Reports logic (Simplified Base Rate)
+        }
+      }
+
+      // Garbage Debt
+      if (t.hasGarbageService && t.status !== 'BLOQUEADO') {
+        const hasPaid = transactions.some(tx =>
+          tx.taxpayerId === t.id &&
+          tx.taxType === TaxType.BASURA &&
+          new Date(tx.date).getMonth() + 1 === currentMonth &&
+          new Date(tx.date).getFullYear() === currentYear
+        );
+        if (!hasPaid) {
+          tpDebt += config.garbageResidentialRate; // Matching Reports logic
+        }
+      }
+
+      // Count as delinquent
+      if (tpDebt > 0 || t.status === 'SUSPENDIDO' || t.status === 'BLOQUEADO' || t.status === 'MOROSO') {
+        totalDebtAmount += tpDebt;
         delinquentCount++;
       }
     });
 
     return { amount: totalDebtAmount, count: delinquentCount };
-  }, [taxpayers]);
+  }, [taxpayers, transactions, config]);
 
 
   // 4. CHART DATA PREPARATION
