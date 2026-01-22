@@ -198,7 +198,9 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
         zoneTotalDebt += tpDebt;
 
         // Count as delinquent if they have ANY debt calculated OR explicit bad status
-        if (tpDebt > 0 || t.status === 'SUSPENDIDO' || t.status === 'BLOQUEADO' || t.status === 'MOROSO') {
+        // Count as delinquent ONLY if they have calculated debt.
+        // This prevents the inconsistency where a taxpayer is marked delinquent but has 0 debt shown.
+        if (tpDebt > 0) {
           zoneDelinquentsCount++;
         }
       });

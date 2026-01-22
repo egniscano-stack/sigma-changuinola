@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
@@ -980,6 +980,19 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
     } catch (e) { console.error(e); }
   };
 
+  const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY'>('PENDING');
+
+  const filteredRequests = useMemo(() => {
+    // Sort by createdAt descending (Newest first)
+    const sorted = [...requests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    if (activeTab === 'PENDING') {
+      return sorted.filter(r => r.status === 'PENDING');
+    } else {
+      return sorted.filter(r => r.status !== 'PENDING'); // History
+    }
+  }, [requests, activeTab]);
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
@@ -992,12 +1005,28 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
           </button>
         </div>
 
+        <div className="flex bg-white border-b border-slate-200">
+          <button
+            onClick={() => setActiveTab('PENDING')}
+            className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'PENDING' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Pendientes ({requests.filter(r => r.status === 'PENDING').length})
+          </button>
+          <button
+            onClick={() => setActiveTab('HISTORY')}
+            className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'HISTORY' ? 'border-slate-500 text-slate-800' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Historial ({requests.filter(r => r.status !== 'PENDING').length})
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-          {requests.length === 0 ? (
-            <div className="text-center py-10 text-slate-400">No hay solicitudes registradas.</div>
+          {filteredRequests.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">No hay solicitudes en esta sección.</div>
           ) : (
-            [...requests].reverse().map(req => (
-              <div key={req.id} className={`bg - white p - 4 rounded - lg shadow - sm border - l - 4 ${req.status === 'PENDING' ? 'border-amber-500' :
+            filteredRequests.map(req => (
+              <div key={req.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${req.status === 'PENDING' ? 'border-amber-500' :
+
                 req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
                 } `}>
                 <div className="flex justify-between items-start mb-2">
