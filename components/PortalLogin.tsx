@@ -37,7 +37,7 @@ export const PortalLogin: React.FC<PortalLoginProps> = ({ onLogin, taxpayers }) 
             <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border-t-8 border-emerald-600">
                 <div className="bg-emerald-600 p-8 text-center text-white">
                     <div className="bg-white p-2 w-auto inline-block mb-6 shadow-xl ring-4 ring-emerald-400/50">
-                        <img src={`${import.meta.env.BASE_URL}logo-municipio.png`} className="h-64 w-auto object-contain" alt="Escudo Municipio de Changuinola" />
+                        <img src={`${import.meta.env.BASE_URL}municipio-logo-new.png`} className="h-64 w-auto object-contain" alt="Escudo Municipio de Changuinola" />
                     </div>
                     <h1 className="text-3xl font-bold tracking-tight uppercase">Sistema de Cobro Digital</h1>
                     <p className="text-emerald-100 text-lg mt-1 font-medium">Municipio de Changuinola</p>

@@ -163,7 +163,7 @@ export const TaxpayerPortal: React.FC<TaxpayerPortalProps> = ({
                 <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4 w-full sm:w-auto">
                         <div className="bg-white p-1.5 rounded-full shadow-md ring-2 ring-emerald-500/50 shrink-0">
-                            <img src={`${import.meta.env.BASE_URL}logo-municipio.png`} alt="Escudo Municipal" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" />
+                            <img src={`${import.meta.env.BASE_URL}municipio-logo-new.png`} alt="Escudo Municipal" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" />
                         </div>
                         <div className="min-w-0">
                             <h1 className="font-bold text-lg sm:text-2xl leading-none tracking-tight truncate">Sistema de Cobro Digital</h1>
