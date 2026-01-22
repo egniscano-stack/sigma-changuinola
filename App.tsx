@@ -17,7 +17,7 @@ import { Landing } from './pages/Landing'; // Import Landing
 import { AlcaldeDashboard } from './pages/AlcaldeDashboard';
 import { SecretariaDashboard } from './pages/SecretariaDashboard';
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus, AdminRequest, RequestStatus } from './types';
-import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw, Bell, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw, Bell, AlertCircle, CheckCircle, XCircle, LogOut, Download, Archive, Edit, X } from 'lucide-react';
 import { db, mapTaxpayerFromDB, mapTransactionFromDB } from './services/db';
 
 // Initial Municipality Info
@@ -908,14 +908,23 @@ function App() {
       )}
       {/* --- DYNAMIC IN-APP NOTIFICATION TOAST --- */}
       {notificationToast && (
-        <div className="fixed top-4 right-4 z-[60] bg-slate-900 border-l-4 border-emerald-500 text-white p-4 rounded-lg shadow-2xl animate-slide-in-right flex items-start max-w-sm">
-          <Bell className="text-emerald-400 mr-3 mt-1" size={24} />
-          <div className="flex-1">
-            <h4 className="font-bold text-base mb-1">{notificationToast.title}</h4>
-            <p className="text-sm text-slate-300">{notificationToast.message}</p>
+        <div className={`fixed top-4 right-4 z-[9999] p-6 rounded-xl shadow-2xl animate-bounce-in flex items-start max-w-md border-l-8 backdrop-blur-md transition-all duration-300 transform hover:scale-105 ${notificationToast.title.includes('Aprobada') ? 'bg-emerald-900/95 border-emerald-400 text-white' :
+          notificationToast.title.includes('Rechazada') ? 'bg-red-900/95 border-red-500 text-white' :
+            'bg-slate-900/95 border-indigo-500 text-white' // Default/Admin
+          }`}>
+          <div className="mr-4 mt-1 bg-white/20 p-2 rounded-full">
+            {notificationToast.title.includes('Aprobada') ? <CheckCircle size={32} className="text-emerald-300" /> :
+              notificationToast.title.includes('Rechazada') ? <XCircle size={32} className="text-red-300" /> :
+                <Bell size={32} className="text-indigo-300" />}
           </div>
-          <button onClick={() => setNotificationToast(null)} className="ml-2 text-slate-400 hover:text-white">
-            <XCircle size={18} />
+
+          <div className="flex-1">
+            <h4 className="font-bold text-lg mb-1 tracking-tight">{notificationToast.title}</h4>
+            <p className="text-sm text-slate-200 leading-relaxed font-medium opacity-90">{notificationToast.message}</p>
+          </div>
+
+          <button onClick={() => setNotificationToast(null)} className="ml-4 text-white/50 hover:text-white transition-colors bg-white/10 hover:bg-white/20 rounded-full p-1">
+            <X size={20} />
           </button>
         </div>
       )}
