@@ -82,43 +82,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
                 </li>
               );
             })}
-          </ul>
-          {/* Chat Button (Custom Item) */}
-          {userRole !== 'ALCALDE' && onToggleChat && (
-            <li>
-              <button
-                onClick={() => { onToggleChat(); onClose(); }}
-                className="w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white group"
-              >
-                <div className="relative">
-                  <MessageCircle size={20} className="mr-3 text-slate-500 group-hover:text-emerald-400 group-hover:scale-110 transition-transform" />
-                  {chatUnreadCount > 0 && (
-                    <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[10px] font-bold h-4 w-4 flex items-center justify-center rounded-full animate-pulse border border-slate-900">
-                      {chatUnreadCount}
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm font-medium">Chat del Equipo</span>
-              </button>
-            </li>
-          )}
-        </ul>
-      </nav>
-
-      {/* Footer Info */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950">
-        <button
-          onClick={onLogout}
-          className="flex items-center justify-center text-slate-400 hover:text-white hover:bg-red-600/20 hover:border-red-600/50 transition-all w-full px-4 py-3 text-sm bg-slate-900 rounded-lg border border-slate-800 active:scale-95"
-        >
-          <LogOut size={18} className="mr-2" />
-          <span>Cerrar Sesión</span>
-        </button>
-        <div className="mt-4 text-center">
-          <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : userRole === 'AUDITOR' ? 'Auditor' : userRole === 'REGISTRO' ? 'Oficial Registro' : 'Cajero'}</p>
+            {/* Chat Button (Custom Item) */}
+            {userRole !== 'ALCALDE' && onToggleChat && (
+              <div className="mt-2 px-2">
+                <button
+                  onClick={() => { onToggleChat(); onClose(); }}
+                  className="w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white group"
+                >
+                  <div className="relative">
+                    <MessageCircle size={20} className="mr-3 text-slate-500 group-hover:text-emerald-400 group-hover:scale-110 transition-transform" />
+                    {chatUnreadCount > 0 && (
+                      <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[10px] font-bold h-4 w-4 flex items-center justify-center rounded-full animate-pulse border border-slate-900">
+                        {chatUnreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium">Chat del Equipo</span>
+                </button>
+              </div>
+            )}
+        </nav>
+        <div className="p-4 border-t border-slate-800 bg-slate-950">
+          <button
+            onClick={onLogout}
+            className="flex items-center justify-center text-slate-400 hover:text-white hover:bg-red-600/20 hover:border-red-600/50 transition-all w-full px-4 py-3 text-sm bg-slate-900 rounded-lg border border-slate-800 active:scale-95"
+          >
+            <LogOut size={18} className="mr-2" />
+            <span>Cerrar Sesión</span>
+          </button>
+          <div className="mt-4 text-center">
+            <p className="text-[10px] text-slate-600">v1.3.0 • {userRole === 'ADMIN' ? 'Administrador' : userRole === 'AUDITOR' ? 'Auditor' : userRole === 'REGISTRO' ? 'Oficial Registro' : 'Cajero'}</p>
+          </div>
         </div>
-      </div>
-    </div >
+      </div >
     </>
   );
 };
