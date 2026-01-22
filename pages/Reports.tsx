@@ -34,18 +34,21 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
 
     const workingSet = filtered;
 
-    const totalRevenue = workingSet.reduce((acc, t) => acc + t.amount, 0);
-    const avgTicket = totalRevenue / (workingSet.length || 1);
+    const totalRevenue = workingSet.reduce((acc, t) => acc + t.amount, 0); // Voids are negative, so they subtract automatically
+    const avgTicket = totalRevenue / (workingSet.filter(t => t.status === 'PAGADO').length || 1);
     const paidTransactions = workingSet.filter(t => t.status === 'PAGADO').length;
 
     // Group by Tax Type
     const byTypeMap = new Map<string, number>();
     workingSet.forEach(t => {
+      // Don't sum voided ones in the breakdown if we want clean charts?
+      // Actually, standard is to show Net Revenue. 
+      // If t is negative (void), it subtracts.
       const current = byTypeMap.get(t.taxType) || 0;
       byTypeMap.set(t.taxType, current + t.amount);
     });
 
-    const byTypeData = Array.from(byTypeMap.entries()).map(([name, value]) => ({ name, value }));
+    const byTypeData = Array.from(byTypeMap.entries()).map(([name, value]) => ({ name, value })).filter(v => v.value > 0); // Hide negative categories if any
 
     // Group by Date 
     const byDateMap = new Map<string, number>();
@@ -58,6 +61,8 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
 
     const byDateData = Array.from(byDateMap.entries()).map(([date, amount]) => ({ date, amount }));
 
+    // IMPORTANT: User wants them "removed from history" but "appear as annulled".
+    // This implies visually distinct. We return all, but render carefully.
     return { totalRevenue, avgTicket, paidTransactions, byTypeData, byDateData, filteredTransactions: filtered };
   }, [transactions, startDate, endDate, selectedTeller]);
 

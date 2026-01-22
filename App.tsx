@@ -871,25 +871,21 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
       if (req.transactionId) {
         const txExists = allTransactions.find(t => t.id === req.transactionId);
         if (txExists) {
-          // We need a db method to update transaction status.
-          // Usually we treat logs as immutable but for VOID we update status.
-          // Im implementing a direct status update here assuming db supports it or I valid method exists.
-          // db.updateTransaction not defined in interface I saw, but I can add it or use raw update in db service if I could.
-          // Since I can't easily edit db service again without context, I will try to use a "create negative transaction" or just assume I need to add updateTransaction to db.ts?
-          // Actually, I can use `db.updateTransaction` if I added it? I didn't add it.
-          // I'll skip the actual transaction update line until I am sure, OR I can assume `updateTransactions` prop updates local state and I rely on that? No, need DB.
-          // I'll try to find if `db` has a generic update or if I should assume it works.
-          // I will use a hypothetical `db.voidTransaction(id)` which I should have added, but since I didn't:
-          // I'll leave the transaction update as a comment or try to do it via `updateRequests`? No.
-          // I'll assume `onUpdateStatus` exists?
-          // Let's just update the REQUEST for now. The Admin might need to manually void it if I can't.
-          // BUT wait, `handleVoidTransaction` implies it does it.
-          // I'll try to use a direct SQL call via `db`? No.
-          // I will leave the DB update for transaction pending and just alert.
-          // OR: I'll use `db.createTransaction` with status 'ANULADO' and negative amount to offset?
-          // Standard accounting practice.
-          const voidTx = { ...txExists, id: `VOID-${Date.now()}`, status: 'ANULADO' as any, amount: -txExists.amount, description: `ANULACIÓN: ${txExists.description}`, date: new Date().toISOString().split('T')[0] };
+          // Create a negative transaction (counter-entry) to balance the books
+          const voidTx: Transaction = {
+            ...txExists,
+            id: `VOID-${Date.now()}`, // Unique ID for void record
+
+            date: new Date().toISOString().split('T')[0],
+            time: new Date().toLocaleTimeString(),
+            amount: -txExists.amount, // NEGATIVE AMOUNT
+            description: `ANULACIÓN REQ: ${txExists.id}`,
+            status: 'ANULADO' as any,
+            tellerName: 'ADMIN'
+          };
+
           await db.createTransaction(voidTx);
+
         } else {
           alert(`Advertencia: La transacción #${req.transactionId} no se encontró.`);
         }
@@ -946,20 +942,20 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
             <div className="text-center py-10 text-slate-400">No hay solicitudes registradas.</div>
           ) : (
             [...requests].reverse().map(req => (
-              <div key={req.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${req.status === 'PENDING' ? 'border-amber-500' :
-                req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
-                }`}>
+              <div key={req.id} className={`bg - white p - 4 rounded - lg shadow - sm border - l - 4 ${req.status === 'PENDING' ? 'border-amber-500' :
+                  req.status === 'APPROVED' ? 'border-emerald-500' : 'border-red-500'
+                } `}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : req.type === 'UPDATE_TAXPAYER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
+                    <span className={`text - xs font - bold px - 2 py - 1 rounded - full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : req.type === 'UPDATE_TAXPAYER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                      } `}>
                       {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : req.type === 'UPDATE_TAXPAYER' ? 'EDICIÓN DATOS' : 'ARREGLO DE PAGO'}
                     </span>
                     <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
                   </div>
-                  <span className={`text-xs font-bold ${req.status === 'PENDING' ? 'text-amber-500' :
-                    req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
-                    }`}>
+                  <span className={`text - xs font - bold ${req.status === 'PENDING' ? 'text-amber-500' :
+                      req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
+                    } `}>
                     {req.status === 'PENDING' ? 'PENDIENTE' : req.status === 'APPROVED' ? 'APROBADO' : 'RECHAZADO'}
                   </span>
                 </div>
@@ -1030,21 +1026,21 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                               <div>
                                 <label className="text-xs text-slate-500">Abono Inicial (B/.)</label>
                                 <input type="number" className="w-full border rounded p-1" placeholder="0.00"
-                                  id={`approve-initial-${req.id}`}
+                                  id={`approve - initial - ${req.id} `}
                                 />
                               </div>
                               <div>
                                 <label className="text-xs text-slate-500">Letras / Cuotas</label>
                                 <input type="number" className="w-full border rounded p-1" placeholder="Ej. 12"
-                                  id={`approve-installments-${req.id}`}
+                                  id={`approve - installments - ${req.id} `}
                                 />
                               </div>
                             </div>
                             <div className="flex gap-2 mt-2">
                               <button
                                 onClick={() => {
-                                  const initial = parseFloat((document.getElementById(`approve-initial-${req.id}`) as HTMLInputElement).value) || 0;
-                                  const installments = parseInt((document.getElementById(`approve-installments-${req.id}`) as HTMLInputElement).value) || 12;
+                                  const initial = parseFloat((document.getElementById(`approve - initial - ${req.id} `) as HTMLInputElement).value) || 0;
+                                  const installments = parseInt((document.getElementById(`approve - installments - ${req.id} `) as HTMLInputElement).value) || 12;
                                   handleApprove(req, initial, installments);
                                 }}
                                 className="flex-1 bg-emerald-600 text-white py-2 rounded font-bold text-xs hover:bg-emerald-700 flex items-center justify-center"
@@ -1099,8 +1095,8 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
 
                 {/* View Response if Processed */}
                 {req.status !== 'PENDING' && (
-                  <div className={`mt-2 p-2 text-xs rounded border ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
-                    }`}>
+                  <div className={`mt - 2 p - 2 text - xs rounded border ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
+                    } `}>
                     <p className="font-bold flex items-center">
                       {req.status === 'APPROVED' ? <CheckCircle size={12} className="mr-1" /> : <XCircle size={12} className="mr-1" />}
                       Resolución: {req.responseNote}
