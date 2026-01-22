@@ -243,22 +243,23 @@ function App() {
         // **NEW: Notify REGISTRO when request is APPROVED or REJECTED**
         if (payload.eventType === 'UPDATE') {
           const upReq = payload.new;
-          const upReqOld = payload.old;
-
-          console.log("Realtime UPDATE:", upReq.status, "UserRole:", currentUser?.role);
+          // Robust logging to debug what is actually coming in
+          console.log("🔔 Realtime UPDATE received:", upReq);
+          console.log("   - New Status:", upReq.status);
+          console.log("   - Current User Role:", currentUser?.role);
 
           // Notify if user is REGISTRO AND status changed to final
+          // We removed the 'old' check because Supabase might not send 'old' record without REPLICA IDENTITY FULL
           if (currentUser?.role === 'REGISTRO') {
-            if ((upReq.status === 'APPROVED' || upReq.status === 'REJECTED') &&
-              (upReqOld?.status === 'PENDING')) {
+            if (upReq.status === 'APPROVED' || upReq.status === 'REJECTED') {
 
-              console.log("Triggering Notification for REGISTRO");
+              console.log("✅ TRIGGERING NOTIFICATION TO UI for Request:", upReq.id);
 
               // Browser Notification
               if (Notification.permission === 'granted') {
                 try {
                   new Notification(`Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`, {
-                    body: `Su solicitud ha sido ${upReq.status === 'APPROVED' ? 'aprobada' : 'rechazada'} por administración.`,
+                    body: `Su solicitud #${upReq.id.slice(0, 4)} ha sido procesada.`,
                     icon: '/sigma-logo-final.png'
                   });
                 } catch (e) { console.error("Notification API Error", e); }
@@ -270,12 +271,14 @@ function App() {
                 message: `El administrador ha ${upReq.status === 'APPROVED' ? 'aprobado' : 'rechazado'} su solicitud.`
               });
 
-              // Audio
-              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-              audio.play().catch(e => console.log("Audio play blocked", e));
+              // Audio - Force new instance every time
+              try {
+                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                audio.play().catch(e => console.log("Audio play blocked by browser policy", e));
+              } catch (e) { console.error("Audio error", e); }
 
-              // Auto hide
-              setTimeout(() => setNotificationToast(null), 6000);
+              // Auto hide after 8 seconds (give more time to read)
+              setTimeout(() => setNotificationToast(null), 8000);
             }
           }
         }
