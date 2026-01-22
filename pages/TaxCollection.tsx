@@ -52,6 +52,28 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   // Logic to load Approved Arrangement
   const [loadedArrangement, setLoadedArrangement] = useState<AdminRequest | null>(null);
 
+  // --- NOTIFICATION LOGIC ---
+  const prevRequestsRef = useRef<AdminRequest[]>([]);
+
+  useEffect(() => {
+    if (adminRequests.length > 0) {
+      adminRequests.forEach(req => {
+        const prev = prevRequestsRef.current.find(p => p.id === req.id);
+        if (prev && prev.status === 'PENDING' && req.status !== 'PENDING') {
+          const title = req.status === 'APPROVED' ? 'Solicitud Aprobada' : 'Solicitud Rechazada';
+          const body = req.status === 'APPROVED'
+            ? `Su solicitud para ${req.taxpayerName} ha sido aprobada.`
+            : `Su solicitud para ${req.taxpayerName} ha sido rechazada: ${req.responseNote || ''}`;
+
+          if (Notification.permission === 'granted') {
+            new Notification(title, { body, icon: '/sigma-logo-final.png' });
+          }
+        }
+      });
+    }
+    prevRequestsRef.current = adminRequests;
+  }, [adminRequests]);
+
   // Pre-fill from props if available
   useEffect(() => {
     if (initialTaxpayer) {
@@ -640,13 +662,32 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
           <h2 className="text-xl md:text-2xl font-bold text-slate-800">Caja Principal</h2>
           <p className="text-slate-500 text-sm">Procesamiento de pagos y emisión de recibos.</p>
         </div>
-        <button
-          onClick={handleDailyClosing}
-          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-900 transition-colors shadow-sm"
-        >
-          <Download size={16} />
-          Cierre del Día
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (Notification.permission !== 'granted') {
+                Notification.requestPermission().then(permission => {
+                  if (permission === 'granted') {
+                    new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
+                  }
+                });
+              } else {
+                new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
+              }
+              alert("Se ha enviado una notificación de prueba. Asegúrese de permitir las notificaciones en su navegador.");
+            }}
+            className="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-bold hover:bg-slate-300 transition-colors"
+          >
+            Test Notificación
+          </button>
+          <button
+            onClick={handleDailyClosing}
+            className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-900 transition-colors shadow-sm"
+          >
+            <Download size={16} />
+            Cierre del Día
+          </button>
+        </div>
       </div>
 
       {/* --- SEARCH --- */}
