@@ -42,6 +42,14 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+
+      // BLOCK HTML/PDF if Tesseract local
+      if (file.type === 'application/pdf') {
+        alert("El scanner local solo soporta IMÁGENES (JPG, PNG).\nPor favor convierta su PDF a imagen o tome una foto directa.");
+        e.target.value = ''; // Reset input
+        return;
+      }
+
       setFileType(file.type);
       setFileName(file.name);
 
@@ -283,7 +291,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
               <div className="text-center p-6">
                 <Upload size={48} className="mx-auto text-slate-400 mb-4" />
                 <p className="text-slate-600 font-medium">Click para subir factura</p>
-                <p className="text-xs text-slate-400 mt-2">Soporta JPG, PNG, PDF</p>
+                <p className="text-xs text-slate-400 mt-2">Soporta JPG, PNG (No PDF)</p>
               </div>
             )}
             <input
@@ -291,7 +299,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
               ref={fileInputRef}
               onChange={handleFileChange}
               className="hidden"
-              accept="image/*,application/pdf"
+              accept="image/*"
             />
           </div>
 
