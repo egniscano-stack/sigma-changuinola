@@ -145,6 +145,7 @@ export interface ExtractedInvoiceData {
   taxpayerName?: string;
   concept?: string;
   docId?: string;
+  taxpayerNumber?: string; // New: Number of Taxpayer
   confidence: number;
 }
 

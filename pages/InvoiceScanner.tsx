@@ -23,6 +23,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
     date: '',
     taxpayerName: '',
     docId: '',
+    taxpayerNumber: '', // New Field
     concept: '',
     amount: 0
   });
@@ -33,6 +34,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
         date: data.date || '',
         taxpayerName: data.taxpayerName || '',
         docId: data.docId || '',
+        taxpayerNumber: data.taxpayerNumber || data.docId || '', // Default to DocID if missing
         concept: data.concept || '',
         amount: data.amount || 0
       });
@@ -369,11 +371,22 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">Documento ID (RUC/Cédula)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase">Documento ID (Cédula/RUC)</label>
                 <input
                   type="text"
                   value={formData.docId}
                   onChange={(e) => setFormData({ ...formData, docId: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase">N° Contribuyente (Auto-generado si vacío)</label>
+                <input
+                  type="text"
+                  value={formData.taxpayerNumber}
+                  onChange={(e) => setFormData({ ...formData, taxpayerNumber: e.target.value })}
+                  placeholder="Ej: 1024 (Opcional)"
                   className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
                 />
               </div>
