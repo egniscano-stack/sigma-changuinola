@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { analyzeInvoiceImage } from '../services/geminiService';
+import Tesseract from 'tesseract.js'; // Local OCR
 import { Transaction, ExtractedInvoiceData, TaxType, PaymentMethod, TaxpayerType, TaxpayerStatus } from '../types';
 import { Camera, Upload, CheckCircle, AlertTriangle, Loader2, FileText, X, Save } from 'lucide-react';
 import { db } from '../services/db';
@@ -63,15 +63,97 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // --- HEURISTIC PARSERS ---
+  const extractDataFromText = (text: string): ExtractedInvoiceData => {
+    console.log("OCR Text:", text);
+    const result: ExtractedInvoiceData = {
+      date: '',
+      amount: 0,
+      taxpayerName: '',
+      docId: '',
+      concept: '',
+      confidence: 0.8
+    };
+
+    const lines = text.split('\n');
+
+    // 1. Find Amount (Look for Total, B/., $)
+    // Matches: B/. 123.45, $123.45, 123.45
+    const amountRegex = /(?:Total|Pagar|Monto|Importe).{0,15}(?:B\/\.?\s*|\$\s*)?([\d,]+\.?\d{2})/i;
+    const moneyRegex = /(?:B\/\.?\s*|\$\s*)([\d,]+\.?\d{2})/;
+
+    for (const line of lines) {
+      let match = line.match(amountRegex);
+      if (!match) match = line.match(moneyRegex);
+
+      if (match) {
+        // Clean number (remove commas)
+        let numStr = match[1].replace(/,/g, '');
+        const num = parseFloat(numStr);
+        if (!isNaN(num) && num > result.amount) {
+          result.amount = num; // Assume largest amount found is Total
+        }
+      }
+    }
+
+    // 2. Find Date (DD/MM/YYYY or YYYY-MM-DD)
+    const dateRegex = /\b(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\b/;
+    const dateMatch = text.match(dateRegex);
+    if (dateMatch) {
+      // Normalize to YYYY-MM-DD
+      let [_, d, m, y] = dateMatch;
+      if (y.length === 2) y = `20${y}`;
+      // Pad
+      const pad = (n: string) => n.length === 1 ? `0${n}` : n;
+      result.date = `${y}-${pad(m)}-${pad(d)}`;
+    }
+
+    // 3. Find RUC/CIP
+    // RUC format often: 123-123-123 or 8-NT-123
+    const rucRegex = /\b(\d{1,4}-[A-Z\d]+-\d+(?:-\d+)?)\b/i;
+    const rucMatch = text.match(rucRegex);
+    if (rucMatch) {
+      result.docId = rucMatch[1];
+    } else {
+      // Try strict CIP
+      const cipRegex = /\b(\d{1,2}-\d{1,4}-\d{1,5})\b/;
+      const cipMatch = text.match(cipRegex);
+      if (cipMatch) result.docId = cipMatch[1];
+    }
+
+    // 4. Concept (Simple heuristics based on keywords)
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes('placa') || lowerText.includes('vehic')) result.concept = 'Impuesto de Circulación (Placa)';
+    else if (lowerText.includes('basura') || lowerText.includes('aseo') || lowerText.includes('recolec')) result.concept = 'Tasa de Aseo';
+    else if (lowerText.includes('const') || lowerText.includes('obra') || lowerText.includes('permiso')) result.concept = 'Permiso de Construcción';
+    else result.concept = 'Pago General (Detectado)';
+
+    return result;
+  };
+
   const handleAnalyze = async () => {
     if (!image) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeInvoiceImage(image, fileType);
-      setData(result);
+      // Use Tesseract.js directly
+      const result = await Tesseract.recognize(
+        image,
+        'eng', // English checks seem to work ok for numbers, 'spa' is better but requires download. 
+        // I'll stick to 'eng' default or 'spa' if user environment allows. 
+        // For safety in offline/restricted envs, we start with minimal. 
+        // Actually, let's try 'spa' if possible, but 'eng' is safer for chars.
+        {
+          logger: m => console.log(m)
+        }
+      );
+
+      const extracted = extractDataFromText(result.data.text);
+      setData(extracted);
+
     } catch (err: any) {
-      setError(err.message || 'Error al conectar con la IA');
+      console.error(err);
+      setError(err.message || 'Error al procesar la imagen con OCR local.');
     } finally {
       setLoading(false);
     }
@@ -153,10 +235,10 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center">
           <Camera className="mr-2 text-indigo-600" />
-          Digitalizador de Facturas Antiguas (IA)
+          Digitalizador Local (OCR)
         </h2>
         <p className="text-slate-500 mt-2">
-          Utiliza Inteligencia Artificial para extraer datos de recibos físicos o PDFs y registrarlos en la base de datos histórica.
+          Sistema de reconocimiento óptico local (Tesseract). No requiere internet ni claves, pero puede requerir corrección manual.
         </p>
       </div>
 
