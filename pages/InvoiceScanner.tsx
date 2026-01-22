@@ -19,11 +19,13 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form State for editing
+  // Form State for editing
   const [formData, setFormData] = useState({
     date: '',
     taxpayerName: '',
     docId: '',
-    taxpayerNumber: '', // New Field
+    receiptNumber: '', // New
+    paymentMethod: '', // New
     concept: '',
     amount: 0
   });
@@ -34,7 +36,8 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
         date: data.date || '',
         taxpayerName: data.taxpayerName || '',
         docId: data.docId || '',
-        taxpayerNumber: data.taxpayerNumber || data.docId || '', // Default to DocID if missing
+        receiptNumber: data.receiptNumber || '',
+        paymentMethod: data.paymentMethod || 'EFECTIVO',
         concept: data.concept || '',
         amount: data.amount || 0
       });
@@ -171,6 +174,18 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
       else if (lower.includes('const') || lower.includes('obra') || lower.includes('permiso')) result.concept = 'Permiso de Construcción';
       else result.concept = 'Pago General (Detectado)';
     }
+
+    // 6. RECEIPT NUMBER (#TX-...)
+    // Pattern: #TX-17687...
+    const rxRegex = /#TX-\d+/;
+    const rxMatch = text.match(rxRegex);
+    if (rxMatch) result.receiptNumber = rxMatch[0];
+
+    // 7. PAYMENT METHOD
+    // Pattern: Método: EFECTIVO
+    const methodRegex = /M(?:e|é)todo:\s*(\w+)/i;
+    const methodMatch = text.match(methodRegex);
+    if (methodMatch) result.paymentMethod = methodMatch[1].toUpperCase();
 
     return result;
   };
@@ -379,23 +394,30 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
 
           {data && (
             <form className="space-y-4">
-              <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100 mb-4">
-                <span className="text-sm font-medium text-indigo-800">Confianza del Análisis</span>
-                <span className="text-lg font-bold text-indigo-600">{(data.confidence * 100).toFixed(0)}%</span>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase">Fecha</label>
+                  <input
+                    type="text"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase">Recibo de Caja #</label>
+                  <input
+                    type="text"
+                    value={formData.receiptNumber}
+                    onChange={(e) => setFormData({ ...formData, receiptNumber: e.target.value })}
+                    className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">Fecha</label>
-                <input
-                  type="text"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">Contribuyente</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase">Recibimos de</label>
                 <input
                   type="text"
                   value={formData.taxpayerName}
@@ -405,22 +427,11 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">Documento ID (Cédula/RUC)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase">ID (Cédula/RUC)</label>
                 <input
                   type="text"
                   value={formData.docId}
                   onChange={(e) => setFormData({ ...formData, docId: e.target.value })}
-                  className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">N° Contribuyente (Auto-generado si vacío)</label>
-                <input
-                  type="text"
-                  value={formData.taxpayerNumber}
-                  onChange={(e) => setFormData({ ...formData, taxpayerNumber: e.target.value })}
-                  placeholder="Ej: 1024 (Opcional)"
                   className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
                 />
               </div>
@@ -435,14 +446,29 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase">Monto Total (B/.)</label>
-                <input
-                  type="number"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
-                  className="w-full mt-1 p-2 border border-emerald-300 bg-emerald-50 rounded font-bold text-emerald-800"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase">Monto Total (B/.)</label>
+                  <input
+                    type="number"
+                    value={formData.amount}
+                    onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
+                    className="w-full mt-1 p-2 border border-emerald-300 bg-emerald-50 rounded font-bold text-emerald-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase">Método de Pago</label>
+                  <select
+                    value={formData.paymentMethod}
+                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    className="w-full mt-1 p-2 border border-slate-300 rounded text-black font-medium"
+                  >
+                    <option value="EFECTIVO">EFECTIVO</option>
+                    <option value="ACH">ACH</option>
+                    <option value="CHEQUE">CHEQUE</option>
+                    <option value="TARJETA">TARJETA</option>
+                  </select>
+                </div>
               </div>
 
               <div className="pt-4 flex gap-3">

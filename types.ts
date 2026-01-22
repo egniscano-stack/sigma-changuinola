@@ -146,6 +146,8 @@ export interface ExtractedInvoiceData {
   concept?: string;
   docId?: string;
   taxpayerNumber?: string; // New: Number of Taxpayer
+  receiptNumber?: string; // New: Receipt Number
+  paymentMethod?: string;
   confidence: number;
 }
 

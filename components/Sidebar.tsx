@@ -19,7 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
     { id: 'caja', label: 'Caja', icon: Banknote, roles: ['ADMIN', 'CAJERO'] },
     { id: 'cobros', label: 'Gestión de Cobros', icon: AlertCircle, roles: ['ADMIN', 'CAJERO', 'AUDITOR'] },
 
-    { id: 'scanner', label: 'Digitalizador IA', icon: ScanLine, roles: ['ADMIN'] },
+    { id: 'scanner', label: 'Digitalizador IA', icon: ScanLine, roles: ['ADMIN', 'CAJERO'] },
     { id: 'reports', label: 'Reportes', icon: FileText, roles: ['ADMIN', 'AUDITOR'] },
     { id: 'settings', label: 'Administración', icon: Settings, roles: ['ADMIN'] },
   ];
