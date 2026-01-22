@@ -79,10 +79,9 @@ function App() {
     // Load Data from Supabase
     const loadData = async () => {
       try {
-        const [usersData, taxpayersData, transactionsData, configData] = await Promise.all([
+        const [usersData, taxpayersData, transactionsData, configData, requestsData] = await Promise.all([
           db.getAppUsers(),
           db.getTaxpayers(),
-          db.getTransactions(),
           db.getTransactions(),
           db.getConfig(),
           db.getAdminRequests()
@@ -130,16 +129,9 @@ function App() {
         // The Promise.all returned [users, taxpayers, transactions, config, requests]
         // But I only destructured 4. 
         // I will rely on the "ReplacementContent" below which replaces lines 74-79 too? 
-        // No, I'll just access it by index if I wasn't careful?
-        // Ah, in the previous block I modified line 78.
-        // I need to update likely line 74 where destructuring happens.
-        // Wait, "ReplacementChunks" are independent? No, they are applied to the file.
-        // I should have updated the destructuring line in the first chunk or a separate one.
-        // Let's do it here. 
-        setAdminRequests(usersData[4] as unknown as AdminRequest[]); // This is messy. 
+        // Fix: Use the correctly destructured requestsData
+        setAdminRequests(requestsData || []);
 
-        // BETTER APPROACH: Update the destructuring line 74 in a separate chunk. 
-        // I will do that now.
         if (configData) setConfig(configData);
       } catch (error) {
         console.error("Error loading data from Supabase:", error);
