@@ -793,6 +793,8 @@ function App() {
         onLogout={handleLogout}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        onToggleChat={() => setIsChatOpen(!isChatOpen)}
+        chatUnreadCount={chatUnreadCount}
       />
 
       <main className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'overflow-hidden' : ''} md:ml-64 print:ml-0 print:w-full`}>
@@ -919,7 +921,14 @@ function App() {
       )}
 
       {/* INTERNAL CHAT (Excluded for Alcalde) */}
-      {user.role !== 'ALCALDE' && <InternalChat currentUser={user} />}
+      {user.role !== 'ALCALDE' && (
+        <InternalChat
+          currentUser={user}
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          onUnreadChange={setChatUnreadCount}
+        />
+      )}
       {/* --- DYNAMIC IN-APP NOTIFICATION TOAST --- */}
       {notificationToast && (
         <div className={`fixed top-4 right-4 z-[9999] p-6 rounded-xl shadow-2xl animate-bounce-in flex items-start max-w-md border-l-8 backdrop-blur-md transition-all duration-300 transform hover:scale-105 ${notificationToast.title.includes('Aprobada') ? 'bg-emerald-900/95 border-emerald-400 text-white' :

@@ -82,26 +82,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, userRole, onNavig
                 </li>
               );
             })}
+            {/* Chat Button (Custom Item) */}
+            {userRole !== 'ALCALDE' && onToggleChat && (
+              <li className="mt-2 pt-2 border-t border-slate-800">
+                <button
+                  onClick={() => { onToggleChat(); onClose(); }}
+                  className="w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white group"
+                >
+                  <div className="relative">
+                    <MessageCircle size={20} className="mr-3 text-slate-500 group-hover:text-emerald-400 group-hover:scale-110 transition-transform" />
+                    {chatUnreadCount > 0 && (
+                      <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[10px] font-bold h-4 w-4 flex items-center justify-center rounded-full animate-pulse border border-slate-900">
+                        {chatUnreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium">Chat del Equipo</span>
+                </button>
+              </li>
+            )}
           </ul>
-          {/* Chat Button (Custom Item) */}
-          {userRole !== 'ALCALDE' && onToggleChat && (
-            <div className="mt-2 px-2">
-              <button
-                onClick={() => { onToggleChat(); onClose(); }}
-                className="w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white group"
-              >
-                <div className="relative">
-                  <MessageCircle size={20} className="mr-3 text-slate-500 group-hover:text-emerald-400 group-hover:scale-110 transition-transform" />
-                  {chatUnreadCount > 0 && (
-                    <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[10px] font-bold h-4 w-4 flex items-center justify-center rounded-full animate-pulse border border-slate-900">
-                      {chatUnreadCount}
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm font-medium">Chat del Equipo</span>
-              </button>
-            </div>
-          )}
         </nav>
         <div className="p-4 border-t border-slate-800 bg-slate-950">
           <button
