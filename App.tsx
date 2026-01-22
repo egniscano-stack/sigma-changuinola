@@ -781,19 +781,39 @@ function App() {
           <div className="flex items-center space-x-2 md:space-x-4">
 
             {/* Admin Notifications Bell */}
+            {/* Admin Notifications Bell */}
             {user.role === 'ADMIN' && (
-              <button
-                onClick={() => setShowRequestsModal(true)}
-                className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors mr-2"
-                title="Autorizaciones Pendientes"
-              >
-                <Bell size={24} />
-                {adminRequests.filter(r => r.status === 'PENDING').length > 0 && (
-                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
-                    {adminRequests.filter(r => r.status === 'PENDING').length}
-                  </span>
-                )}
-              </button>
+              <>
+                <button
+                  onClick={() => setShowRequestsModal(true)}
+                  className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors mr-2"
+                  title="Autorizaciones Pendientes"
+                >
+                  <Bell size={24} />
+                  {adminRequests.filter(r => r.status === 'PENDING').length > 0 && (
+                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                      {adminRequests.filter(r => r.status === 'PENDING').length}
+                    </span>
+                  )}
+                </button>
+
+                {/* DEBUG: Test Notification Button */}
+                <button
+                  onClick={() => {
+                    setNotificationToast({
+                      title: 'Prueba de Sistema',
+                      message: 'El sistema de notificaciones visuales está activo.'
+                    });
+                    new Notification('Prueba de Sistema', { body: 'Notificación de escritorio activa.', icon: '/sigma-logo-final.png' });
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                    audio.play().catch(e => console.log("Audio play blocked", e));
+                  }}
+                  className="text-[10px] bg-slate-100 px-2 py-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 mr-2"
+                  title="Probar Alertas"
+                >
+                  Test Alert
+                </button>
+              </>
             )}
 
             {/* Status Indicator & Sync Button */}
