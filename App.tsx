@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
 import { PortalLogin } from './components/PortalLogin';
+import { InternalChat } from './components/InternalChat';
 import { usePersistentState } from './hooks/usePersistentState';
 import { Dashboard } from './pages/Dashboard';
 import { Taxpayers } from './pages/Taxpayers';
@@ -912,6 +913,9 @@ function App() {
           onUpdateTaxpayer={handleUpdateTaxpayer}
         />
       )}
+
+      {/* INTERNAL CHAT (Excluded for Alcalde) */}
+      {user.role !== 'ALCALDE' && <InternalChat currentUser={user} />}
       {/* --- DYNAMIC IN-APP NOTIFICATION TOAST --- */}
       {notificationToast && (
         <div className={`fixed top-4 right-4 z-[9999] p-6 rounded-xl shadow-2xl animate-bounce-in flex items-start max-w-md border-l-8 backdrop-blur-md transition-all duration-300 transform hover:scale-105 ${notificationToast.title.includes('Aprobada') ? 'bg-emerald-900/95 border-emerald-400 text-white' :
