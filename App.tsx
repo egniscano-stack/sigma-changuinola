@@ -294,9 +294,9 @@ function App() {
     try {
       await db.createAdminRequest(req);
       // State update happens via Realtime Subscription automatically
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating request:", error);
-      alert("Error al enviar solicitud al servidor.");
+      alert(`Error al enviar solicitud al servidor: ${error.message || 'Error desconocido'}`);
     }
   };
 
