@@ -30,3 +30,12 @@ CREATE POLICY "Everyone can select" ON chat_messages FOR SELECT TO anon, authent
 -- Given the 'db.ts' implementation seems to use a single client, we likely rely on client-side logic + permissive RLS or disabled RLS.
 -- Let's make it permissive for UPDATE to ensure the feature works immediately.
 CREATE POLICY "Allow update for all" ON chat_messages FOR UPDATE TO anon, authenticated USING (true);
+
+-- Add last_read_general_chat to app_users for persistent General Chat read status
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'app_users' AND column_name = 'last_read_general_chat') THEN
+        ALTER TABLE app_users ADD COLUMN last_read_general_chat TIMESTAMPTZ;
+    END IF;
+END $$;
+
