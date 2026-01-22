@@ -170,7 +170,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
         let tpDebt = t.balance || 0; // Base historical debt
 
         // Commercial Debt
-        if (t.hasCommercialActivity && t.status !== 'BLOQUEADO') {
+        if (t.hasCommercialActivity && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
           const hasPaid = transactions.some(tx =>
             tx.taxpayerId === t.id &&
             tx.taxType === TaxType.COMERCIO &&
@@ -183,7 +183,7 @@ export const Reports: React.FC<ReportsProps> = ({ transactions, users, currentUs
         }
 
         // Garbage Debt
-        if (t.hasGarbageService && t.status !== 'BLOQUEADO') {
+        if (t.hasGarbageService && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
           const hasPaid = transactions.some(tx =>
             tx.taxpayerId === t.id &&
             tx.taxType === TaxType.BASURA &&

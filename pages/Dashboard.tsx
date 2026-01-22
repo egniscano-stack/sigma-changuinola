@@ -53,7 +53,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
       let tpDebt = t.balance || 0;
 
       // Commercial Debt
-      if (t.hasCommercialActivity && t.status !== 'BLOQUEADO') {
+      if (t.hasCommercialActivity && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
         const hasPaid = transactions.some(tx =>
           tx.taxpayerId === t.id &&
           tx.taxType === TaxType.COMERCIO &&
@@ -61,12 +61,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
           new Date(tx.date).getFullYear() === currentYear
         );
         if (!hasPaid) {
-          tpDebt += config.commercialBaseRate; // Matching Reports logic (Simplified Base Rate)
+          tpDebt += config.commercialBaseRate;
         }
       }
 
       // Garbage Debt
-      if (t.hasGarbageService && t.status !== 'BLOQUEADO') {
+      if (t.hasGarbageService && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
         const hasPaid = transactions.some(tx =>
           tx.taxpayerId === t.id &&
           tx.taxType === TaxType.BASURA &&
@@ -74,12 +74,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
           new Date(tx.date).getFullYear() === currentYear
         );
         if (!hasPaid) {
-          tpDebt += config.garbageResidentialRate; // Matching Reports logic
+          tpDebt += config.garbageResidentialRate;
         }
       }
 
       // Count as delinquent
-      if (tpDebt > 0 || t.status === 'SUSPENDIDO' || t.status === 'BLOQUEADO' || t.status === 'MOROSO') {
+      if (tpDebt > 0) {
         totalDebtAmount += tpDebt;
         delinquentCount++;
       }

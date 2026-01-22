@@ -989,11 +989,7 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
     if (activeTab === 'PENDING') {
       return sorted.filter(r => r.status === 'PENDING');
     } else {
-      // For history, usually we prefer Newest First (what happened recently)
-      // But user asked for "notifications order", implies pending.
-      // Let's keep history as Newest First for better UX? Or user said "los ya respondidos ordenalos en un historial aparte". 
-      // User didn't specify order for history explicitly but "orden de llegada" usually refers to the queue.
-      // I will invert history to be Newest First to be helpful, but Pending MUST be Oldest First.
+      // History: Newest first
       return sorted.filter(r => r.status !== 'PENDING').reverse();
     }
   }, [requests, activeTab]);
