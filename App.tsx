@@ -983,13 +983,18 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
   const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY'>('PENDING');
 
   const filteredRequests = useMemo(() => {
-    // Sort by createdAt descending (Newest first)
-    const sorted = [...requests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Sort by createdAt ascending (Oldest first - FIFO)
+    const sorted = [...requests].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     if (activeTab === 'PENDING') {
       return sorted.filter(r => r.status === 'PENDING');
     } else {
-      return sorted.filter(r => r.status !== 'PENDING'); // History
+      // For history, usually we prefer Newest First (what happened recently)
+      // But user asked for "notifications order", implies pending.
+      // Let's keep history as Newest First for better UX? Or user said "los ya respondidos ordenalos en un historial aparte". 
+      // User didn't specify order for history explicitly but "orden de llegada" usually refers to the queue.
+      // I will invert history to be Newest First to be helpful, but Pending MUST be Oldest First.
+      return sorted.filter(r => r.status !== 'PENDING').reverse();
     }
   }, [requests, activeTab]);
 
