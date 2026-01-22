@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo, AgendaItem, Corregimiento } from '../types';
+import { Taxpayer, Transaction, User, TaxConfig, TaxpayerType, TaxpayerStatus, CommercialCategory, PaymentMethod, UserRole, TaxType, VehicleInfo, AgendaItem, Corregimiento, AdminRequest } from '../types';
 
 // --- DATA MAPPING HELPERS (Snake_case DB <-> CamelCase App) ---
 
@@ -108,6 +108,42 @@ const mapAgendaItemToDB = (data: AgendaItem) => ({
     rejection_reason: data.rejectionReason
 });
 
+
+// --- ADMIN REQUEST MAPPINGS ---
+const mapAdminRequestFromDB = (data: any): AdminRequest => ({
+    id: data.id,
+    type: data.type,
+    status: data.status,
+    requesterName: data.requester_name,
+    taxpayerName: data.taxpayer_name,
+    description: data.description,
+    transactionId: data.transaction_id,
+    payload: data.payload,
+    totalDebt: data.total_debt,
+    taxpayerId: data.payload?.id, // Extract from payload if exists
+    responseNote: data.response_note,
+    approvedAmount: data.approved_amount,
+    approvedTotalDebt: data.approved_total_debt,
+    installments: data.installments,
+    createdAt: data.created_at
+});
+
+const mapAdminRequestToDB = (data: AdminRequest) => ({
+    id: data.id,
+    type: data.type,
+    status: data.status,
+    requester_name: data.requesterName,
+    taxpayer_name: data.taxpayerName,
+    description: data.description,
+    transaction_id: data.transactionId,
+    payload: data.payload,
+    total_debt: data.totalDebt,
+    response_note: data.responseNote,
+    approved_amount: data.approvedAmount,
+    approved_total_debt: data.approvedTotalDebt,
+    installments: data.installments,
+    // created_at is default now()
+});
 
 // --- API FUNCTIONS ---
 
@@ -233,6 +269,27 @@ export const db = {
         return mapAgendaItemFromDB(data);
     },
 
+    // ADMIN REQUESTS
+    getAdminRequests: async (): Promise<AdminRequest[]> => {
+        const { data, error } = await supabase.from('admin_requests').select('*').order('created_at', { ascending: false });
+        if (error) return [];
+        return data.map(mapAdminRequestFromDB);
+    },
+
+    createAdminRequest: async (req: AdminRequest) => {
+        const dbData = mapAdminRequestToDB(req);
+        const { data, error } = await supabase.from('admin_requests').insert(dbData).select().single();
+        if (error) throw error;
+        return mapAdminRequestFromDB(data);
+    },
+
+    updateAdminRequest: async (req: AdminRequest) => {
+        const dbData = mapAdminRequestToDB(req);
+        const { data, error } = await supabase.from('admin_requests').update(dbData).eq('id', req.id).select().single();
+        if (error) throw error;
+        return mapAdminRequestFromDB(data);
+    },
+
     // CUSTOM QUERY: Get Reports for Mayor (Today, Week, Month counts)
     getReportStats: async () => {
         // This would ideally be a severeal queries or a function.
@@ -250,7 +307,8 @@ export const db = {
     subscribeToChanges: (
         onTaxpayerChange: (payload: any) => void,
         onTransactionChange: (payload: any) => void,
-        onAgendaChange?: (payload: any) => void
+        onAgendaChange?: (payload: any) => void,
+        onAdminRequestChange?: (payload: any) => void
     ) => {
         const taxpayersSubscription = supabase
             .channel('public:taxpayers')
@@ -276,10 +334,21 @@ export const db = {
                 .subscribe();
         }
 
+        let adminReqSubscription: any = null;
+        if (onAdminRequestChange) {
+            adminReqSubscription = supabase
+                .channel('public:admin_requests')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_requests' }, (payload) => {
+                    onAdminRequestChange(payload);
+                })
+                .subscribe();
+        }
+
         return () => {
             supabase.removeChannel(taxpayersSubscription);
             supabase.removeChannel(transactionsSubscription);
             if (agendaSubscription) supabase.removeChannel(agendaSubscription);
+            if (adminReqSubscription) supabase.removeChannel(adminReqSubscription);
         };
     }
 };

@@ -160,7 +160,7 @@ export interface User {
 
 // --- ADMIN REQUESTS (For Void / Arrangement / Taxpayer Edit) ---
 export type RequestType = 'VOID_TRANSACTION' | 'PAYMENT_ARRANGEMENT' | 'UPDATE_TAXPAYER';
-export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
 
 export interface AdminRequest {
   id: string;

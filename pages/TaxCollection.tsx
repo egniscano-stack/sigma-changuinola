@@ -16,11 +16,11 @@ interface TaxCollectionProps {
   // New props for Requests
   adminRequests?: AdminRequest[];
   onCreateRequest?: (req: AdminRequest) => void;
-  onUpdateRequest?: (requests: AdminRequest[]) => void;
+  onArchiveRequest?: (id: string) => void;
 }
 import { AdminRequest, RequestType } from '../types';
 
-export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest, onUpdateRequest }) => {
+export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest, onArchiveRequest }) => {
   const [selectedTax, setSelectedTax] = useState<TaxType>(TaxType.VEHICULO);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -874,8 +874,8 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                     {req.status !== 'PENDING' && (
                       <button
                         onClick={() => {
-                          if (onUpdateRequest) {
-                            onUpdateRequest(adminRequests.map(r => r.id === req.id ? { ...r, status: 'ARCHIVED' as any } : r)); // Cast to any or update type if possible, or just filter locally if no persist
+                          if (onArchiveRequest) {
+                            onArchiveRequest(req.id);
                           }
                         }}
                         className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
