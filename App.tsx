@@ -241,28 +241,42 @@ function App() {
         }
 
         // **NEW: Notify REGISTRO when request is APPROVED or REJECTED**
-        if (payload.eventType === 'UPDATE' && currentUser?.role === 'REGISTRO') {
+        if (payload.eventType === 'UPDATE') {
           const upReq = payload.new;
-          // Only notify if status changed to final state
-          if (upReq.status === 'APPROVED' || upReq.status === 'REJECTED') {
-            // Browser Notification
-            if (Notification.permission === 'granted') {
-              try {
-                new Notification(`Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`, {
-                  body: `Su solicitud ha sido ${upReq.status === 'APPROVED' ? 'aprobada' : 'rechazada'} por el administrador.`,
-                  icon: '/sigma-logo-final.png'
-                });
-              } catch (e) { console.error("Notification API Error", e); }
+          const upReqOld = payload.old;
+
+          console.log("Realtime UPDATE:", upReq.status, "UserRole:", currentUser?.role);
+
+          // Notify if user is REGISTRO AND status changed to final
+          if (currentUser?.role === 'REGISTRO') {
+            if ((upReq.status === 'APPROVED' || upReq.status === 'REJECTED') &&
+              (upReqOld?.status === 'PENDING')) {
+
+              console.log("Triggering Notification for REGISTRO");
+
+              // Browser Notification
+              if (Notification.permission === 'granted') {
+                try {
+                  new Notification(`Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`, {
+                    body: `Su solicitud ha sido ${upReq.status === 'APPROVED' ? 'aprobada' : 'rechazada'} por administración.`,
+                    icon: '/sigma-logo-final.png'
+                  });
+                } catch (e) { console.error("Notification API Error", e); }
+              }
+
+              // In-App Toast
+              setNotificationToast({
+                title: `Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`,
+                message: `El administrador ha ${upReq.status === 'APPROVED' ? 'aprobado' : 'rechazado'} su solicitud.`
+              });
+
+              // Audio
+              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+              audio.play().catch(e => console.log("Audio play blocked", e));
+
+              // Auto hide
+              setTimeout(() => setNotificationToast(null), 6000);
             }
-
-            setNotificationToast({
-              title: `Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`,
-              message: `El administrador ha ${upReq.status === 'APPROVED' ? 'aprobado' : 'rechazado'} su solicitud.`
-            });
-
-            setTimeout(() => setNotificationToast(null), 5000);
-            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-            audio.play().catch(e => console.log("Audio play blocked", e));
           }
         }
       }
