@@ -73,7 +73,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- HEURISTIC PARSERS ---
+  /* --- HEURISTIC PARSERS (UPDATED FOR CHANGUINOLA) --- */
   const extractDataFromText = (text: string): ExtractedInvoiceData => {
     console.log("OCR Text:", text);
     const result: ExtractedInvoiceData = {
@@ -81,62 +81,96 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
       amount: 0,
       taxpayerName: '',
       docId: '',
+      taxpayerNumber: '',
       concept: '',
       confidence: 0.8
     };
 
     const lines = text.split('\n');
 
-    // 1. Find Amount (Look for Total, B/., $)
-    // Matches: B/. 123.45, $123.45, 123.45
-    const amountRegex = /(?:Total|Pagar|Monto|Importe).{0,15}(?:B\/\.?\s*|\$\s*)?([\d,]+\.?\d{2})/i;
-    const moneyRegex = /(?:B\/\.?\s*|\$\s*)([\d,]+\.?\d{2})/;
-
-    for (const line of lines) {
-      let match = line.match(amountRegex);
-      if (!match) match = line.match(moneyRegex);
-
-      if (match) {
-        // Clean number (remove commas)
-        let numStr = match[1].replace(/,/g, '');
-        const num = parseFloat(numStr);
-        if (!isNaN(num) && num > result.amount) {
-          result.amount = num; // Assume largest amount found is Total
-        }
+    // 1. DATE: Look for YYYY-MM-DD (Typical in this system e.g. 2026-01-18)
+    const isoDateRegex = /(\d{4})-(\d{2})-(\d{2})/;
+    const isoMatch = text.match(isoDateRegex);
+    if (isoMatch) {
+      result.date = isoMatch[0]; // 2026-01-18
+    } else {
+      // Fallback to DD-MM-YYYY
+      const dateRegex = /\b(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\b/;
+      const dateMatch = text.match(dateRegex);
+      if (dateMatch) {
+        let [_, d, m, y] = dateMatch;
+        if (y.length === 2) y = `20${y}`;
+        const pad = (n: string) => n.length === 1 ? `0${n}` : n;
+        result.date = `${y}-${pad(m)}-${pad(d)}`;
       }
     }
 
-    // 2. Find Date (DD/MM/YYYY or YYYY-MM-DD)
-    const dateRegex = /\b(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\b/;
-    const dateMatch = text.match(dateRegex);
-    if (dateMatch) {
-      // Normalize to YYYY-MM-DD
-      let [_, d, m, y] = dateMatch;
-      if (y.length === 2) y = `20${y}`;
-      // Pad
-      const pad = (n: string) => n.length === 1 ? `0${n}` : n;
-      result.date = `${y}-${pad(m)}-${pad(d)}`;
+    // 2. NAME: Look for 'RECIBIMOS DE:'
+    // Method: Iterating lines to find the label, then taking the next part
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.match(/RECIBIMOS DE:/i)) {
+        // Check if name is on SAME line
+        const parts = line.split(/RECIBIMOS DE:/i);
+        if (parts[1] && parts[1].trim().length > 2) {
+          result.taxpayerName = parts[1].trim();
+        } else if (lines[i + 1]) {
+          // Next line
+          result.taxpayerName = lines[i + 1].trim();
+        }
+        break;
+      }
     }
 
-    // 3. Find RUC/CIP
-    // RUC format often: 123-123-123 or 8-NT-123
-    const rucRegex = /\b(\d{1,4}-[A-Z\d]+-\d+(?:-\d+)?)\b/i;
-    const rucMatch = text.match(rucRegex);
-    if (rucMatch) {
-      result.docId = rucMatch[1];
+    // 3. ID / RUC / TAXPAYER NUMBER
+    // Changuinola format: ID: 1-789-456
+    const idRegex = /(?:ID|RUC|CEDULA)[:.]?\s*([\d-]{5,20})/; // e.g. ID: 1-789-456
+    const idMatch = text.match(idRegex);
+    if (idMatch) result.docId = idMatch[1];
+
+    // Look for "Contribuyente No" separately or assume it's same as ID if not found
+    // If there is "Contribuyente:" pattern
+    const taxNumRegex = /Contribuyente\s*(?:No\.?|N°)?[:.]?\s*(\w+)/i;
+    const taxNumMatch = text.match(taxNumRegex);
+    if (taxNumMatch) {
+      result.taxpayerNumber = taxNumMatch[1];
     } else {
-      // Try strict CIP
-      const cipRegex = /\b(\d{1,2}-\d{1,4}-\d{1,5})\b/;
-      const cipMatch = text.match(cipRegex);
-      if (cipMatch) result.docId = cipMatch[1];
+      result.taxpayerNumber = result.docId; // Fallback
     }
 
-    // 4. Concept (Simple heuristics based on keywords)
-    const lowerText = text.toLowerCase();
-    if (lowerText.includes('placa') || lowerText.includes('vehic')) result.concept = 'Impuesto de Circulación (Placa)';
-    else if (lowerText.includes('basura') || lowerText.includes('aseo') || lowerText.includes('recolec')) result.concept = 'Tasa de Aseo';
-    else if (lowerText.includes('const') || lowerText.includes('obra') || lowerText.includes('permiso')) result.concept = 'Permiso de Construcción';
-    else result.concept = 'Pago General (Detectado)';
+    // 4. AMOUNT: Look for 'TOTAL PAGADO B/.'
+    // Pattern from image: "TOTAL PAGADO B/. 25.00" or just "B/. 25.00" combined with Total
+    const totalRegex = /TOTAL\s*PAGADO\s*B\/\.?\s*([\d,]+\.?\d{2})/i;
+    const totalMatch = text.match(totalRegex);
+    if (totalMatch) {
+      result.amount = parseFloat(totalMatch[1].replace(/,/g, ''));
+    } else {
+      // Fallback: Find any large number preceded by B/.
+      const moneyMatches = [...text.matchAll(/B\/\.?\s*([\d,]+\.?\d{2})/g)];
+      if (moneyMatches.length > 0) {
+        // Usually the last one or the largest one is the total. Let's take the last one.
+        const amt = parseFloat(moneyMatches[moneyMatches.length - 1][1].replace(/,/g, ''));
+        result.amount = amt;
+      }
+    }
+
+    // 5. CONCEPT: Look for 'CONCEPTO' header and what's below it
+    // Or specific row detection
+    const conceptIndex = lines.findIndex(l => l.match(/CONCEPTO/i));
+    if (conceptIndex !== -1 && lines[conceptIndex + 1]) {
+      // Usually content is below header
+      let possibleConcept = lines[conceptIndex + 1];
+      // Clean overlapping "Valor" or prices
+      possibleConcept = possibleConcept.replace(/B\/\.?\s*[\d,.]+/g, '').trim();
+      result.concept = possibleConcept;
+    } else {
+      // Fallback Heuristics
+      const lower = text.toLowerCase();
+      if (lower.includes('placa')) result.concept = 'Impuesto de Circulación Vehicular';
+      else if (lower.includes('basura')) result.concept = 'Tasa de Aseo';
+      else if (lower.includes('const') || lower.includes('obra') || lower.includes('permiso')) result.concept = 'Permiso de Construcción';
+      else result.concept = 'Pago General (Detectado)';
+    }
 
     return result;
   };
@@ -192,7 +226,7 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
       if (!taxpayer) {
         const newTaxpayer = {
           id: '', // Generated by DB
-          taxpayerNumber: `AUTO-${Math.floor(Math.random() * 99999)}`,
+          taxpayerNumber: formData.taxpayerNumber || `AUTO-${Math.floor(Math.random() * 99999)}`,
           type: formData.docId.includes('-') ? TaxpayerType.NATURAL : TaxpayerType.JURIDICA,
           status: TaxpayerStatus.ACTIVO,
           docId: formData.docId || `UNKNOWN-${Date.now()}`,
