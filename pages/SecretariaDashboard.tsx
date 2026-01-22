@@ -122,11 +122,11 @@ export const SecretariaDashboard: React.FC<SecretariaDashboardProps> = ({ user, 
                     </div>
                 </div>
                 <button onClick={onLogout} className="flex items-center gap-2 text-emerald-200 hover:text-white transition-colors">
-                    <LogOut size={18} /> Salir
+                    <LogOut size={18} /> <span className="hidden md:inline">Salir</span>
                 </button>
             </header>
 
-            <main className="flex-1 p-6 flex flex-col md:flex-row gap-6 overflow-hidden max-h-[calc(100vh-80px)]">
+            <main className="flex-1 p-6 flex flex-col md:flex-row gap-6 md:overflow-hidden md:max-h-[calc(100vh-80px)]">
                 {/* LEFT: CALENDAR & MONTH VIEW */}
                 <div className="flex-1 flex flex-col bg-white rounded-xl shadow-md border border-slate-300 overflow-hidden animate-slide-left hover:shadow-xl transition-shadow duration-300">
                     <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50 backdrop-blur-sm sticky top-0 z-10">

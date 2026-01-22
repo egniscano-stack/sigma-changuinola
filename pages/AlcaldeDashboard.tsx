@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Transaction, AgendaItem } from '../types';
 import { db } from '../services/db';
-import { Calendar, Users, BarChart3, CheckCircle, XCircle, RefreshCw, LogOut, Clock, MapPin } from 'lucide-react';
+import { Calendar, Users, BarChart3, CheckCircle, XCircle, RefreshCw, LogOut, Clock, MapPin, Menu, X } from 'lucide-react';
 
 interface AlcaldeDashboardProps {
     user: User;
@@ -22,6 +22,7 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
     const [selectedItem, setSelectedItem] = useState<AgendaItem | null>(null);
     const [isRejecting, setIsRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     // Secretary Form
     const [secName, setSecName] = useState('');
@@ -164,8 +165,15 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col">
             {/* Header */}
-            <header className="bg-indigo-900 text-white p-4 shadow-lg flex justify-between items-center">
+            {/* Header */}
+            <header className="bg-indigo-900 text-white p-4 shadow-lg flex justify-between items-center z-30 relative">
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="md:hidden p-1 hover:bg-white/10 rounded-lg transition-colors"
+                    >
+                        {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                    </button>
                     <div className="h-10 w-10 bg-white/10 rounded-full flex items-center justify-center font-bold text-xl">
                         AL
                     </div>
@@ -175,28 +183,39 @@ export const AlcaldeDashboard: React.FC<AlcaldeDashboardProps> = ({ user, onLogo
                     </div>
                 </div>
                 <button onClick={onLogout} className="flex items-center gap-2 text-indigo-200 hover:text-white transition-colors">
-                    <LogOut size={18} /> Salir
+                    <LogOut size={18} /> <span className="hidden md:inline">Salir</span>
                 </button>
             </header>
 
-            <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar */}
-                <aside className="w-64 bg-white shadow-md z-10 hidden md:block border-r border-slate-300">
+            <div className="flex flex-1 overflow-hidden relative">
+                {/* Mobile Menu Backdrop */}
+                {isMobileMenuOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                    />
+                )}
+
+                {/* Sidebar - Desktop & Mobile Slide-in */}
+                <aside className={`
+                    absolute md:relative z-20 h-full w-64 bg-white shadow-md border-r border-slate-300 transition-transform duration-300 ease-in-out
+                    ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                `}>
                     <nav className="p-4 space-y-2">
                         <button
-                            onClick={() => setActiveTab('REPORTS')}
+                            onClick={() => { setActiveTab('REPORTS'); setIsMobileMenuOpen(false); }}
                             className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${activeTab === 'REPORTS' ? 'bg-indigo-50 text-indigo-700 font-medium border border-indigo-100' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                             <BarChart3 size={20} /> Reportes Financieros
                         </button>
                         <button
-                            onClick={() => setActiveTab('AGENDA')}
+                            onClick={() => { setActiveTab('AGENDA'); setIsMobileMenuOpen(false); }}
                             className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${activeTab === 'AGENDA' ? 'bg-indigo-50 text-indigo-700 font-medium border border-indigo-100' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                             <Calendar size={20} /> Agenda Mensual
                         </button>
                         <button
-                            onClick={() => setActiveTab('SECRETARY')}
+                            onClick={() => { setActiveTab('SECRETARY'); setIsMobileMenuOpen(false); }}
                             className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${activeTab === 'SECRETARY' ? 'bg-indigo-50 text-indigo-700 font-medium border border-indigo-100' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                             <Users size={20} /> Gestión de Personal
