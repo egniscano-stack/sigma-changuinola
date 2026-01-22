@@ -155,6 +155,14 @@ export const InternalChat: React.FC<InternalChatProps> = ({ currentUser, isOpen,
                                         icon: '/sigma-logo-final.png'
                                     });
                                 }
+                            } else {
+                                // We are viewing the room, so mark as read immediately in DB to persist
+                                if (countKey === 'general') {
+                                    db.markGeneralChatRead(currentUser.username);
+                                } else {
+                                    // Private
+                                    db.markMessagesAsRead(currentUser.username, newMsg.sender_username);
+                                }
                             }
                         }
                     }
