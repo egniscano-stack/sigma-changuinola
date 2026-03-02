@@ -19,7 +19,6 @@ export const InvoiceScanner: React.FC<InvoiceScannerProps> = ({ onScanComplete }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form State for editing
-  // Form State for editing
   const [formData, setFormData] = useState({
     date: '',
     taxpayerName: '',

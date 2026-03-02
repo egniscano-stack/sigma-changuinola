@@ -10,6 +10,7 @@ import { Taxpayers } from './pages/Taxpayers';
 import { TaxCollection } from './pages/TaxCollection';
 import { Debts } from './pages/Debts';
 import { InvoiceScanner } from './pages/InvoiceScanner';
+import { PassportTax } from './pages/PassportTax';
 import { Settings } from './pages/Settings';
 import { Reports } from './pages/Reports';
 import { INITIAL_CONFIG } from './services/mockData';
@@ -690,6 +691,14 @@ function App() {
         return (
           <InvoiceScanner
             onScanComplete={(newTx) => setTransactions([newTx, ...transactions])}
+          />
+        );
+      case 'turismo':
+        return (
+          <PassportTax
+            currentUserName={user?.name || 'Cajero'}
+            municipalityInfo={municipalityInfo}
+            onBack={() => setCurrentPage('caja')}
           />
         );
       case 'reports':

@@ -280,70 +280,80 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
           </div>
 
           {/* Search Dropdown */}
-          {isSearching && searchResults.length > 0 && (
+          {isSearching && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in z-50">
-              <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
-                Resultados Encontrados
-              </div>
-              <ul>
-                {searchResults.map(tp => (
-                  <li key={tp.id}>
-                    <button
-                      onClick={() => {
-                        setHistoryTaxpayer(tp);
-                        setSearchTerm('');
-                        setIsSearching(false);
-                      }}
-                      className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors flex items-center justify-between group"
-                    >
-                      <div>
-                        <div className="font-bold text-slate-800 group-hover:text-indigo-700">{tp.name}</div>
-                        <div className="text-xs text-slate-500 flex items-center gap-2">
-                          <span className="font-mono bg-slate-100 px-1 rounded">{tp.docId}</span>
-                          <span>• {tp.taxpayerNumber}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditInit(tp);
-                          }}
-                          className="text-slate-400 hover:text-indigo-600 flex items-center group/edit"
-                          title="Editar Contribuyente"
-                        >
-                          <Edit size={16} className="mr-1" />
-                          <span className="text-xs font-bold underline decoration-transparent group-hover/edit:decoration-indigo-600 transition-all">Editar</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setViewTaxpayer(tp);
-                            setSearchTerm('');
-                            setIsSearching(false);
-                          }}
-                          className="text-slate-400 hover:text-blue-600 flex items-center group/view mr-2"
-                          title="Ver Ficha Completa"
-                        >
-                          <FileText size={16} className="mr-1" />
-                          <span className="text-xs font-bold underline decoration-transparent group-hover/view:decoration-blue-600 transition-all">Ficha</span>
-                        </button>
+              {searchResults.length > 0 ? (
+                <>
+                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                    Resultados Encontrados
+                  </div>
+                  <ul>
+                    {searchResults.map(tp => (
+                      <li key={tp.id}>
                         <button
                           onClick={() => {
                             setHistoryTaxpayer(tp);
                             setSearchTerm('');
                             setIsSearching(false);
                           }}
-                          className="text-slate-400 hover:text-indigo-500 flex items-center"
+                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors flex items-center justify-between group"
                         >
-                          <span className="text-xs mr-2 font-medium">Historial</span>
-                          <History size={16} />
+                          <div>
+                            <div className="font-bold text-slate-800 group-hover:text-indigo-700">{tp.name}</div>
+                            <div className="text-xs text-slate-500 flex items-center gap-2">
+                              <span className="font-mono bg-slate-100 px-1 rounded">{tp.docId}</span>
+                              <span>• {tp.taxpayerNumber}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditInit(tp);
+                              }}
+                              className="text-slate-400 hover:text-indigo-600 flex items-center group/edit"
+                              title="Editar Contribuyente"
+                            >
+                              <Edit size={16} className="mr-1" />
+                              <span className="text-xs font-bold underline decoration-transparent group-hover/edit:decoration-indigo-600 transition-all">Editar</span>
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewTaxpayer(tp);
+                                setSearchTerm('');
+                                setIsSearching(false);
+                              }}
+                              className="text-slate-400 hover:text-blue-600 flex items-center group/view mr-2"
+                              title="Ver Ficha Completa"
+                            >
+                              <FileText size={16} className="mr-1" />
+                              <span className="text-xs font-bold underline decoration-transparent group-hover/view:decoration-blue-600 transition-all">Ficha</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setHistoryTaxpayer(tp);
+                                setSearchTerm('');
+                                setIsSearching(false);
+                              }}
+                              className="text-slate-400 hover:text-indigo-500 flex items-center"
+                            >
+                              <span className="text-xs mr-2 font-medium">Historial</span>
+                              <History size={16} />
+                            </button>
+                          </div>
                         </button>
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <div className="p-8 text-center bg-white">
+                  <AlertCircle size={32} className="mx-auto text-slate-200 mb-2" />
+                  <p className="text-slate-600 font-bold">No se encontraron contribuyentes</p>
+                  <p className="text-xs text-slate-400 mt-1">Intente con otro nombre, RUC o cédula</p>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -711,19 +711,27 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
 
             {showDropdown && searchTerm.length > 0 && (
               <div className="absolute top-full left-0 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-80 overflow-y-auto z-50">
-                {filteredTaxpayers.map((tp) => (
-                  <div
-                    key={tp.id}
-                    onClick={() => handleSelectTaxpayer(tp)}
-                    className="p-4 hover:bg-emerald-50 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
-                  >
-                    <div className="flex justify-between items-center">
-                      <p className="font-bold text-slate-800">{tp.name}</p>
-                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-mono font-bold">#{tp.taxpayerNumber || 'N/A'}</span>
+                {filteredTaxpayers.length > 0 ? (
+                  filteredTaxpayers.map((tp) => (
+                    <div
+                      key={tp.id}
+                      onClick={() => handleSelectTaxpayer(tp)}
+                      className="p-4 hover:bg-emerald-50 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
+                    >
+                      <div className="flex justify-between items-center">
+                        <p className="font-bold text-slate-800">{tp.name}</p>
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-mono font-bold">#{tp.taxpayerNumber || 'N/A'}</span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono">ID: {tp.docId}</p>
                     </div>
-                    <p className="text-xs text-slate-500 font-mono">ID: {tp.docId}</p>
+                  ))
+                ) : (
+                  <div className="p-8 text-center">
+                    <AlertCircle size={32} className="mx-auto text-slate-300 mb-2" />
+                    <p className="text-slate-600 font-bold">No se encontraron resultados</p>
+                    <p className="text-xs text-slate-400 mt-1">Verifique el nombre o número de cédula/RUC</p>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
