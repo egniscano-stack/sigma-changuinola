@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
@@ -15,12 +15,22 @@ import { Settings } from './pages/Settings';
 import { Reports } from './pages/Reports';
 import { INITIAL_CONFIG } from './services/mockData';
 import { TaxpayerPortal } from './pages/TaxpayerPortal';
-import { Landing } from './pages/Landing'; // Import Landing
+import { Landing } from './pages/Landing';
 import { AlcaldeDashboard } from './pages/AlcaldeDashboard';
 import { SecretariaDashboard } from './pages/SecretariaDashboard';
 import { TaxConfig, Taxpayer, Transaction, User, MunicipalityInfo, TaxpayerType, CommercialCategory, TaxpayerStatus, AdminRequest, RequestStatus } from './types';
-import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw, Bell, AlertCircle, CheckCircle, XCircle, LogOut, Download, Archive, Edit, X } from 'lucide-react';
+import { Menu, ArrowLeft, Wifi, WifiOff, RefreshCw, Bell, AlertCircle, CheckCircle, XCircle, LogOut, Download, Archive, Edit, X, Shield, Clock } from 'lucide-react';
 import { db, mapTaxpayerFromDB, mapTransactionFromDB } from './services/db';
+import {
+  createSession,
+  destroySession,
+  getSession,
+  initInactivityGuard,
+  logAuditEvent,
+  logFinancialOperation,
+  getSessionTimeRemaining,
+  SECURITY_CONFIG,
+} from './services/security';
 
 // Initial Municipality Info
 const INITIAL_MUNICIPALITY_INFO: MunicipalityInfo = {
@@ -47,10 +57,9 @@ function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [config, setConfig] = useState<TaxConfig>(INITIAL_CONFIG);
 
-  // Admin Requests State (Mock Backend via LocalStorage)
   // Admin Requests State (Synced via Supabase)
   const [adminRequests, setAdminRequests] = useState<AdminRequest[]>([]);
-  const [showRequestsModal, setShowRequestsModal] = useState(false); // For Admin to view list
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
 
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
@@ -66,6 +75,10 @@ function App() {
 
   // Check navigation mode (Portal vs Admin vs Landing)
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
+
+  // Security: Session timeout countdown display
+  const [sessionTimeLeft, setSessionTimeLeft] = useState<number>(SECURITY_CONFIG.SESSION_TIMEOUT_MINUTES * 60 * 1000);
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
 
   // Ref to track user in callbacks without re-subscribing
   const userRef = useRef<User | null>(null);
@@ -348,6 +361,40 @@ function App() {
     setIsSidebarOpen(false);
   }, [currentPage]);
 
+  // ============================================================
+  // SECURITY: Auto-logout on inactivity + session countdown
+  // ============================================================
+  useEffect(() => {
+    if (!user) return; // Only guard when logged in
+
+    // Session countdown timer
+    const countdownInterval = setInterval(() => {
+      const remaining = getSessionTimeRemaining();
+      setSessionTimeLeft(remaining);
+      // Show warning when less than 5 minutes remain
+      setShowSessionWarning(remaining > 0 && remaining < 5 * 60 * 1000);
+    }, 10000); // Check every 10 seconds
+
+    // Initialize inactivity guard
+    const cleanup = initInactivityGuard(() => {
+      // Session expired - force logout
+      setUser(null);
+      setCurrentPage('dashboard');
+      setSelectedDebtTaxpayer(null);
+      setAppMode('LANDING');
+      destroySession();
+      // Show expiry alert
+      setTimeout(() => {
+        alert('⏰ Su sesión ha expirado por inactividad. Por seguridad debe volver a autenticarse.');
+      }, 100);
+    });
+
+    return () => {
+      clearInterval(countdownInterval);
+      cleanup();
+    };
+  }, [user]);
+
   // Handlers
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
@@ -378,10 +425,13 @@ function App() {
   };
 
   const handleLogout = () => {
+    // Destroy session securely
+    destroySession();
     setUser(null);
     setCurrentPage('dashboard');
     setSelectedDebtTaxpayer(null);
-    setAppMode('LANDING'); // Go back to landing on logout
+    setAppMode('LANDING');
+    setShowSessionWarning(false);
   };
 
   const handleAddTaxpayer = async (newTp: Taxpayer) => {
@@ -716,6 +766,8 @@ function App() {
             onSimulateScraping={handleSimulateScraping}
             onBackup={handleExcelBackup}
             onImport={handleExcelImport}
+            onImportTaxpayer={handleAddTaxpayer}
+            currentUserName={user?.name || user?.username || 'Admin'}
             taxpayers={taxpayers}
             transactions={transactions}
             onUpdateTaxpayer={handleUpdateTaxpayer}
@@ -835,6 +887,14 @@ function App() {
               </h2>
               <p className="text-[10px] md:text-xs text-slate-500 hidden md:block">SIGMA Changuinola • Bocas del Toro</p>
             </div>
+
+            {/* Security: Session Warning Banner */}
+            {showSessionWarning && (
+              <div className="hidden md:flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-700 text-xs px-3 py-1.5 rounded-full animate-pulse">
+                <Clock size={12} />
+                <span>Sesión expira en {Math.ceil(sessionTimeLeft / 60000)} min</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center space-x-2 md:space-x-4">

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { TaxConfig, MunicipalityInfo, User, UserRole, Taxpayer, Transaction, TaxpayerStatus } from '../types';
 import { Save, Shield, DollarSign, Building, UserPlus, X, Database, Globe, Download, Upload, Server, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { GovScraper } from './GovScraper';
 
 interface SettingsProps {
   config: TaxConfig;
@@ -13,14 +14,16 @@ interface SettingsProps {
   onSimulateScraping: () => void;
   onBackup: () => void;
   onImport: (file: File) => void;
+  onImportTaxpayer: (taxpayer: Taxpayer) => void;
   taxpayers: Taxpayer[];
   transactions: Transaction[];
   onUpdateTaxpayer: (tp: Taxpayer) => void;
+  currentUserName: string;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
   config, onUpdateConfig, municipalityInfo, onUpdateMunicipalityInfo, users, onCreateUser, onUpdateUser, onSimulateScraping, onBackup, onImport,
-  taxpayers, transactions, onUpdateTaxpayer
+  onImportTaxpayer, taxpayers, transactions, onUpdateTaxpayer, currentUserName
 }) => {
   const [localConfig, setLocalConfig] = useState<TaxConfig>(config);
   const [localMuniInfo, setLocalMuniInfo] = useState<MunicipalityInfo>(municipalityInfo);
@@ -395,7 +398,7 @@ export const Settings: React.FC<SettingsProps> = ({
               </h4>
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <p className="text-xs text-slate-400 mb-4">
-                  Herramientas de extracción automática de datos (ETL) desde fuentes web gubernamentales para actualizar el padrón de contribuyentes.
+                  Extraccion automatica desde <strong>panamaemprende.gob.pa</strong> para detectar negocios con Aviso de Operaciones en el Distrito de Changuinola que no estan en el padron municipal. Ver panel completo abajo.
                 </p>
                 <div className="space-y-2">
                   <button
@@ -419,6 +422,22 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* --- PANAMA EMPRENDE FULL SCRAPER PANEL --- */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 lg:col-span-2">
+          <div className="flex items-center mb-6 border-b pb-3">
+            <Globe className="mr-2 text-indigo-600" size={20} />
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Scraping Panama Emprende</h3>
+              <p className="text-xs text-slate-500">Deteccion de negocios con Aviso de Operaciones no inscritos en el municipio</p>
+            </div>
+          </div>
+          <GovScraper
+            taxpayers={taxpayers}
+            onImportTaxpayer={onImportTaxpayer}
+            currentUserName={currentUserName}
+          />
         </div>
 
         {/* --- User Roles Management --- */}

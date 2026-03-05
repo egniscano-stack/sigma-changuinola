@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import Tesseract from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
 import {
     Globe, FileText, User, Calendar, MapPin,
     CheckCircle, Printer, Download, ArrowLeft, X, AlertTriangle, Check,
@@ -177,21 +177,22 @@ export const PassportTax: React.FC<PassportTaxProps> = ({ currentUserName, munic
                 const base64Image = reader.result as string;
                 setScanImage(base64Image);
 
-                try {
-                    console.log("Starting OCR with Tesseract.recognize...");
-                    const { data: { text } } = await Tesseract.recognize(
-                        base64Image,
-                        'eng',
-                        {
-                            logger: m => {
-                                if (m.status === 'recognizing text') {
-                                    setOcrProgress(Math.floor(m.progress * 100));
-                                }
-                            }
-                        }
-                    );
+                let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
 
-                    console.log("OCR Success. Extracted text:", text);
+                try {
+                    console.log('Starting OCR with Tesseract.js v7 createWorker...');
+
+                    worker = await createWorker('eng', 1, {
+                        logger: (m: { status: string; progress: number }) => {
+                            if (m.status === 'recognizing text') {
+                                setOcrProgress(Math.floor(m.progress * 100));
+                            }
+                        },
+                    });
+
+                    const { data: { text } } = await worker.recognize(base64Image);
+
+                    console.log('OCR Success. Extracted text:', text);
                     const extracted = extractPassportData(text);
 
                     setFormData(prev => ({
@@ -206,13 +207,17 @@ export const PassportTax: React.FC<PassportTaxProps> = ({ currentUserName, munic
                         setShowScanSuccess(true);
                         setTimeout(() => setShowScanSuccess(false), 5000);
                     } else {
-                        alert("No se detectaron datos claros. Por favor verifique los campos manualmente.");
+                        alert('No se detectaron datos claros en la imagen. Complete los campos manualmente.');
                     }
 
-                } catch (err) {
-                    console.error("OCR Final Error:", err);
-                    alert("Error al procesar la imagen (OCR). Verifique que sea una imagen clara del pasaporte.");
+                } catch (err: any) {
+                    console.error('OCR Error:', err);
+                    const msg = err?.message || String(err) || 'Error desconocido';
+                    alert(`Error al escanear el pasaporte:\n${msg}\n\nConsejo: Use una imagen clara, bien iluminada y sin reflejos.`);
                 } finally {
+                    if (worker) {
+                        try { await worker.terminate(); } catch (_) { }
+                    }
                     setIsScanning(false);
                     setScanImage(null);
                     setOcrProgress(0);

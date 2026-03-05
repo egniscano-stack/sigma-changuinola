@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# SECURITY: Environment variables - NEVER commit these
+.env
+.env.local
+.env.production
+.env.staging
+.env.development.local
+.env.test.local
+.env.production.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +31,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Audit logs (should stay local or go to secure server)
+audit_logs/
+*.audit.log
+
+# Build artifacts
+build/

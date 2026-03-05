@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { Taxpayer, TaxpayerType, CommercialCategory, Transaction, VehicleInfo, TaxpayerStatus, UserRole, Corregimiento, AdminRequest, RequestStatus } from '../types';
 import { db } from '../services/db';
-import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle, Edit, Upload, Image as ImageIcon } from 'lucide-react';
+import { Search, UserPlus, Briefcase, User, MapPin, Store, History, X, FileText, Car, Hammer, Trash2, CheckSquare, Plus, AlertCircle, MoreVertical, ShieldAlert, Ban, CheckCircle, Edit, Upload, Image as ImageIcon, Shield } from 'lucide-react';
+import { AntivirusScanner } from '../components/AntivirusScanner';
+import { FileScanResult } from '../services/antivirus';
+import { getSession } from '../services/security';
 
 interface TaxpayersProps {
   taxpayers: Taxpayer[];
@@ -50,6 +53,11 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   const [files, setFiles] = useState<Record<string, File>>({});
   const [isUploading, setIsUploading] = useState(false);
 
+  // Antivirus State
+  const [showAntivirusScan, setShowAntivirusScan] = useState(false);
+  const [scanResults, setScanResults] = useState<Record<string, FileScanResult> | null>(null);
+  const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
+
   const handleFileChange = (key: string, file: File | null) => {
     if (file) {
       setFiles(prev => ({ ...prev, [key]: file }));
@@ -86,16 +94,53 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsUploading(true);
 
+    // If there are files to upload, run antivirus scan FIRST
+    if (Object.keys(files).length > 0) {
+      // Store form data for after scan
+      setPendingSubmitData({ ...newTp });
+      setShowAntivirusScan(true);
+      return; // Wait for scan to complete
+    }
+
+    // No files - proceed directly
+    await submitTaxpayerData({ ...newTp }, {});
+  };
+
+  // Called after antivirus scan completes
+  const handleScanComplete = async (allClean: boolean, results: Record<string, FileScanResult>) => {
+    setShowAntivirusScan(false);
+    setScanResults(results);
+
+    if (!allClean) {
+      // BLOCK upload - alert user
+      const infectedFiles = Object.entries(results)
+        .filter(([, r]) => r.status !== 'CLEAN')
+        .map(([key]) => key)
+        .join(', ');
+      alert(`🚨 ALERTA DE SEGURIDAD\n\nSe detectaron archivos sospechosos o infectados:\n${infectedFiles}\n\nLos archivos han sido BLOQUEADOS. No se realizará la carga al servidor.\n\nPor favor revise los archivos y consulte con el administrador del sistema.`);
+      setFiles({});
+      setPendingSubmitData(null);
+      return;
+    }
+
+    // All clean - proceed with upload
+    if (pendingSubmitData) {
+      await submitTaxpayerData(pendingSubmitData, files);
+      setPendingSubmitData(null);
+    }
+  };
+
+  const submitTaxpayerData = async (taxpayerFormData: Partial<Taxpayer>, filesToUpload: Record<string, File>) => {
+    setIsUploading(true);
     try {
       // Upload Files First
-      const uploadedDocs: Record<string, string> = { ...newTp.documents }; // Keep existing
+      const uploadedDocs: Record<string, string> = { ...taxpayerFormData.documents };
 
       // Define base path
-      const docIdSafe = newTp.docId?.replace(/[^a-zA-Z0-9]/g, '_') || 'unknown';
+      const docIdSafe = taxpayerFormData.docId?.replace(/[^a-zA-Z0-9]/g, '_') || 'unknown';
 
-      for (const [key, file] of Object.entries(files)) {
+      for (const [key, file] of Object.entries(filesToUpload)) {
         const ext = file.name.split('.').pop();
         const path = `taxpayers/${docIdSafe}/${key}_${Date.now()}.${ext}`;
         try {
@@ -110,13 +155,12 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
       }
 
       const taxpayerData = {
-        ...newTp,
+        ...taxpayerFormData,
         documents: uploadedDocs
       };
 
       if (isEditing && editingId) {
-        // Request Logic
-        const reason = prompt("Por favor, ingrese el motivo de la edición para la aprobación del Administrador:");
+        const reason = prompt('Por favor, ingrese el motivo de la edición para la aprobación del Administrador:');
         if (!reason) {
           setIsUploading(false);
           return;
@@ -135,12 +179,10 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
         };
 
         onCreateRequest(request);
-        alert("Solicitud de edición enviada al Administrador.");
+        alert('Solicitud de edición enviada al Administrador.');
         handleCancelEdit();
         setFiles({});
-
       } else {
-        // Create Logic
         const finalStatus = (taxpayerData.balance && taxpayerData.balance > 0) ? TaxpayerStatus.MOROSO : taxpayerData.status;
 
         onAdd({
@@ -154,14 +196,14 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
         setNewTp(initialFormState);
         setFiles({});
         alert(finalStatus === TaxpayerStatus.MOROSO
-          ? "Contribuyente registrado como MOROSO debido al saldo inicial."
-          : "Contribuyente registrado exitosamente."
+          ? 'Contribuyente registrado como MOROSO debido al saldo inicial.'
+          : 'Contribuyente registrado exitosamente.'
         );
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (error) {
-      console.error("Error saving taxpayer:", error);
-      alert("Ocurrió un error al guardar.");
+      console.error('Error saving taxpayer:', error);
+      alert('Ocurrió un error al guardar.');
     } finally {
       setIsUploading(false);
     }

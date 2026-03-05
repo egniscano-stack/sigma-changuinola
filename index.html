@@ -4,10 +4,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>SIGMA Changuinola</title>
+  <title>SIGMA Changuinola — Sistema de Gestión Municipal</title>
+
+  <!-- ============================================================ -->
+  <!-- SECURITY HEADERS (via meta tags for client-side app)         -->
+  <!-- NOTE: For production, configure these in the web server too  -->
+  <!-- ============================================================ -->
+
+  <!-- Content Security Policy: Controls which resources can be loaded -->
+  <!-- This prevents XSS attacks by whitelisting trusted sources only  -->
+  <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://maps.googleapis.com;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: blob: https://*.supabase.co https://lh3.googleusercontent.com;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://maps.googleapis.com https://assets.mixkit.co;
+      media-src 'self' https://assets.mixkit.co;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+    " />
+
+  <!-- Prevent clickjacking attacks -->
+  <meta http-equiv="X-Frame-Options" content="DENY" />
+
+  <!-- Prevent MIME type sniffing -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+
+  <!-- Prevent caching of sensitive financial data in browser -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, private" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <!-- Referrer Policy: Don't leak URL in referrer headers -->
+  <meta name="referrer" content="no-referrer" />
+
+  <!-- Prevent search engine indexing (government internal system) -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
+
+  <!-- SEO Meta -->
+  <meta name="description"
+    content="SIGMA Changuinola — Sistema Integral de Gestión Municipal. Municipio de Changuinola, Bocas del Toro, República de Panamá." />
+  <meta name="author" content="Municipio de Changuinola" />
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json">
+
   <style>
     :root {
       --primary-color: #059669;

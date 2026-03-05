@@ -1,3 +1,9 @@
+# ============================================================
+# SIGMA Changuinola - Gobierno de Panamá
+# Configuración de Seguridad del Servidor Web (Apache)
+# ============================================================
+
+# --- SPA Route Rewriting ---
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
@@ -5,4 +11,73 @@
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
+</IfModule>
+
+# --- Security Headers ---
+<IfModule mod_headers.c>
+  # Prevent clickjacking
+  Header always set X-Frame-Options "DENY"
+
+  # Prevent MIME sniffing
+  Header always set X-Content-Type-Options "nosniff"
+
+  # Enable XSS Protection (legacy browsers)
+  Header always set X-XSS-Protection "1; mode=block"
+
+  # Strict Transport Security (HTTPS only - 1 year)
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+  # Referrer Policy - don't leak URLs
+  Header always set Referrer-Policy "no-referrer"
+
+  # Permissions Policy - disable unnecessary browser features
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+
+  # Content Security Policy
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://maps.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co https://lh3.googleusercontent.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://maps.googleapis.com https://assets.mixkit.co; media-src 'self' https://assets.mixkit.co; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+
+  # Remove server identification headers
+  Header always unset X-Powered-By
+  Header always unset Server
+</IfModule>
+
+# --- Disable Server Signature ---
+ServerSignature Off
+
+# --- Prevent directory listing ---
+Options -Indexes
+
+# --- Cache Control for sensitive financial data ---
+<FilesMatch "\.(html|htm)$">
+  Header set Cache-Control "no-store, no-cache, must-revalidate, private"
+  Header set Pragma "no-cache"
+  Header set Expires "0"
+</FilesMatch>
+
+# Cache static assets (non-sensitive)
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|woff|woff2|svg)$">
+  Header set Cache-Control "public, max-age=86400"
+</FilesMatch>
+
+# --- Block access to sensitive files ---
+<FilesMatch "(\.env|\.env\.local|\.env\.production|\.git|package\.json|package-lock\.json|tsconfig\.json|vite\.config\.ts)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# --- Force HTTPS (uncomment in production) ---
+# <IfModule mod_rewrite.c>
+#   RewriteCond %{HTTPS} off
+#   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
+
+# --- Block common attack patterns ---
+<IfModule mod_rewrite.c>
+  # Block SQL injection attempts
+  RewriteCond %{QUERY_STRING} (UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER) [NC]
+  RewriteRule .* - [F,L]
+
+  # Block XSS attempts in query string
+  RewriteCond %{QUERY_STRING} (<script|%3Cscript) [NC]
+  RewriteRule .* - [F,L]
 </IfModule>

@@ -1,12 +1,48 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Hardcoded credentials for immediate stability
-const supabaseUrl = 'https://qxmugkwcsxwxrwjshumg.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4bXVna3djc3h3eHJ3anNodW1nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4MzkzOTksImV4cCI6MjA3MjQxNTM5OX0.Pu-0O7HjUqdO3quZeuIMTWi2Nxtbd0DGxT_cAYr1DjA';
+// ============================================================
+// SECURITY: Credentials MUST come from environment variables.
+// NEVER hardcode API keys or secrets in source code.
+// Configure your .env.local file (not committed to git):
+//   VITE_SUPABASE_URL=your_supabase_url
+//   VITE_SUPABASE_ANON_KEY=your_anon_key
+// ============================================================
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn("Supabase keys are missing.");
+    console.error(
+        '[SIGMA Security] CRITICAL: Variables de entorno de Supabase no configuradas.\n' +
+        'Cree un archivo .env.local con VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.\n' +
+        'NUNCA hardcodee credenciales en el código fuente.'
+    );
+    // In production, this would throw an error to prevent app startup without credentials
+    if (import.meta.env.PROD) {
+        throw new Error('[SIGMA Security] Configuración de seguridad incompleta. Contacte al administrador del sistema.');
+    }
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+        // Persist session in sessionStorage (more secure than localStorage - clears on tab close)
+        persistSession: true,
+        storageKey: 'sigma_supabase_auth',
+        // Auto-refresh tokens
+        autoRefreshToken: true,
+        // Detect session from URL (for magic links etc.)
+        detectSessionInUrl: false,
+    },
+    global: {
+        headers: {
+            // Add custom security header for request identification
+            'X-Client-Info': 'sigma-changuinola/2.0',
+        },
+    },
+    realtime: {
+        params: {
+            eventsPerSecond: 10, // Rate limit realtime events
+        },
+    },
+});
