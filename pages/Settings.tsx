@@ -25,7 +25,10 @@ export const Settings: React.FC<SettingsProps> = ({
   config, onUpdateConfig, municipalityInfo, onUpdateMunicipalityInfo, users, onCreateUser, onUpdateUser, onSimulateScraping, onBackup, onImport,
   onImportTaxpayer, taxpayers, transactions, onUpdateTaxpayer, currentUserName
 }) => {
-  const [localConfig, setLocalConfig] = useState<TaxConfig>(config);
+  const [localConfig, setLocalConfig] = useState<TaxConfig>(config || { 
+    plateCost: 0, constructionRatePerSqm: 0, garbageResidentialRate: 0, garbageCommercialRate: 0, 
+    commercialBaseRate: 0, liquorLicenseRate: 0, advertisementRate: 0, commercialRates: {} as any 
+  });
   const [localMuniInfo, setLocalMuniInfo] = useState<MunicipalityInfo>(municipalityInfo);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -517,6 +520,9 @@ export const Settings: React.FC<SettingsProps> = ({
                   <option value="REGISTRO">Oficial de Registro (Trámites)</option>
                   <option value="ADMIN">Administrador (Total)</option>
                   <option value="AUDITOR">Auditor (Solo Lectura)</option>
+                  <option value="ALCALDE">Alcalde (Dashboard Ejecutivo)</option>
+                  <option value="SECRETARIA">Secretaría (Compromisos)</option>
+                  <option value="CONTRIBUYENTE">Contribuyente (Acceso Portal)</option>
                 </select>
               </div>
 

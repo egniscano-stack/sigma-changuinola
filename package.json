@@ -1,21 +1,28 @@
 {
   "name": "sigma-changuinola",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.7",
   "type": "module",
+  "main": "electron.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "electron:start": "electron .",
+    "electron:build": "vite build && electron-builder -c.extraMetadata.main=electron.cjs",
+    "electron:build:win": "vite build && electron-builder --win -c.extraMetadata.main=electron.cjs",
+    "electron:build:mac": "vite build && electron-builder --mac -c.extraMetadata.main=electron.cjs",
+    "dist": "npm run electron:build"
   },
-  "homepage": "https://egniscano-stack.github.io/sigma-changuinola",
+  "homepage": "./",
   "dependencies": {
     "@google/genai": "^1.37.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.90.1",
     "@types/tesseract.js": "^0.0.2",
+    "electron-is-dev": "^3.0.1",
     "html2canvas": "1.4.1",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^5.0.7",
@@ -31,9 +38,33 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
     "gh-pages": "^6.3.0",
     "terser": "^5.46.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.municipio.sigma",
+    "productName": "SIGMA Changuinola",
+    "files": [
+      "dist/**/*",
+      "electron.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "directories": {
+      "output": "release"
+    }
   }
 }

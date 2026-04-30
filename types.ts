@@ -223,3 +223,14 @@ export interface ChatMessage {
   created_at: string;
   is_read: boolean;
 }
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      backup: {
+        save: (key: string, data: any) => Promise<{success: boolean, path?: string, error?: string}>;
+        load: (key: string) => Promise<{success: boolean, data?: any, error?: string}>;
+      }
+    }
+  }
+}

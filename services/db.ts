@@ -19,7 +19,7 @@ export const mapTaxpayerFromDB = (data: any): Taxpayer => ({
     hasCommercialActivity: data.has_commercial_activity,
     commercialCategory: data.commercial_category as CommercialCategory,
     commercialName: data.commercial_name,
-    balance: data.balance,
+    balance: Number(data.balance) || 0,
     hasConstruction: data.has_construction,
     hasGarbageService: data.has_garbage_service,
     vehicles: [], // Vehicles loaded separately or joined
@@ -52,7 +52,7 @@ export const mapTransactionFromDB = (data: any): Transaction => ({
     id: data.id,
     taxpayerId: data.taxpayer_id,
     taxType: data.tax_type as TaxType,
-    amount: data.amount,
+    amount: Number(data.amount) || 0,
     date: data.date,
     time: data.time,
     description: data.description,
@@ -121,11 +121,11 @@ const mapAdminRequestFromDB = (data: any): AdminRequest => ({
     description: data.description,
     transactionId: data.transaction_id,
     payload: data.payload,
-    totalDebt: data.total_debt,
-    taxpayerId: data.payload?.id, // Extract from payload if exists
+    totalDebt: Number(data.total_debt) || 0,
+    taxpayerId: data.taxpayer_id || data.payload?.id, // Use dedicated column or fallback to payload
     responseNote: data.response_note,
-    approvedAmount: data.approved_amount,
-    approvedTotalDebt: data.approved_total_debt,
+    approvedAmount: Number(data.approved_amount) || 0,
+    approvedTotalDebt: Number(data.approved_total_debt) || 0,
     installments: data.installments,
     createdAt: data.created_at
 });
@@ -136,6 +136,7 @@ const mapAdminRequestToDB = (data: AdminRequest) => ({
     status: data.status,
     requester_name: data.requesterName,
     taxpayer_name: data.taxpayerName,
+    taxpayer_id: data.taxpayerId,
     description: data.description,
     transaction_id: data.transactionId,
     payload: data.payload,
@@ -162,8 +163,14 @@ export const db = {
 
     createTaxpayer: async (taxpayer: Taxpayer) => {
         const dbData = mapTaxpayerToDB(taxpayer);
-        // Remove ID to let Postgres generate a valid UUID
-        delete (dbData as any).id;
+        
+        // Si el ID no es un UUID válido (ej: es un ID temporal de modo offline), 
+        // lo eliminamos para que Postgres genere uno real.
+        const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+        
+        if (!dbData.id || !isUUID(dbData.id)) {
+            delete (dbData as any).id;
+        }
 
         const { data, error } = await supabase.from('taxpayers').insert(dbData).select().single();
         if (error) {
@@ -223,6 +230,21 @@ export const db = {
         const { data, error } = await supabase.from('transactions').insert(dbData).select().single();
         if (error) {
             console.error("Supabase Create Transaction Error:", error);
+            throw error;
+        }
+        return mapTransactionFromDB(data);
+    },
+
+    updateTransaction: async (tx: Transaction) => {
+        const dbData = mapTransactionToDB(tx);
+        const { data, error } = await supabase
+            .from('transactions')
+            .update(dbData)
+            .eq('id', tx.id)
+            .select()
+            .single();
+        if (error) {
+            console.error("Supabase Update Transaction Error:", error);
             throw error;
         }
         return mapTransactionFromDB(data);

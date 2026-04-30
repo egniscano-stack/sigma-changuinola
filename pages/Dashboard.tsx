@@ -4,17 +4,18 @@ import {
   PieChart, Pie, Cell, LineChart, Line
 } from 'recharts';
 import { Transaction, Taxpayer, TaxConfig, TaxType, CommercialCategory } from '../types';
-import { DollarSign, TrendingUp, Users, AlertCircle, Calendar, Clock, ArrowUpRight, ArrowDownRight, FileText } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, AlertCircle, Calendar, Clock, ArrowUpRight, ArrowDownRight, FileText, RefreshCw } from 'lucide-react';
 
 interface DashboardProps {
   transactions: Transaction[];
   taxpayers: Taxpayer[];
   config: TaxConfig;
+  onRefresh?: () => void;
 }
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, config }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, config, onRefresh }) => {
   const [timeFilter, setTimeFilter] = useState<'DAY' | 'WEEK' | 'MONTH'>('MONTH');
 
   // 1. FILTER TRANSACTIONS
@@ -51,30 +52,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
 
     taxpayers.forEach(t => {
       let tpDebt = t.balance || 0;
+      const activeStatuses = ['ACTIVO', 'MOROSO'];
 
-      // Commercial Debt
-      if (t.hasCommercialActivity && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
-        const hasPaid = transactions.some(tx =>
-          tx.taxpayerId === t.id &&
-          tx.taxType === TaxType.COMERCIO &&
-          new Date(tx.date).getMonth() + 1 === currentMonth &&
-          new Date(tx.date).getFullYear() === currentYear
-        );
-        if (!hasPaid) {
-          tpDebt += config.commercialBaseRate;
-        }
-      }
+      if (activeStatuses.includes(t.status)) {
+        // Iterate all months of current year
+        for (let m = 1; m <= currentMonth; m++) {
+          // Commercial
+          if (t.hasCommercialActivity) {
+            const hasPaid = transactions.some(tx =>
+              tx.taxpayerId === t.id &&
+              tx.taxType === TaxType.COMERCIO &&
+              (tx.metadata?.month === m || new Date(tx.date).getMonth() + 1 === m) &&
+              new Date(tx.date).getFullYear() === currentYear &&
+              tx.status === 'PAGADO'
+            );
+            if (!hasPaid) {
+              const rates = config?.commercialRates || {};
+              const rate = t.commercialCategory ? (rates[t.commercialCategory] || config?.commercialBaseRate || 0) : (config?.commercialBaseRate || 0);
+              tpDebt += rate;
+            }
+          }
 
-      // Garbage Debt
-      if (t.hasGarbageService && (t.status === 'ACTIVO' || t.status === 'MOROSO')) {
-        const hasPaid = transactions.some(tx =>
-          tx.taxpayerId === t.id &&
-          tx.taxType === TaxType.BASURA &&
-          new Date(tx.date).getMonth() + 1 === currentMonth &&
-          new Date(tx.date).getFullYear() === currentYear
-        );
-        if (!hasPaid) {
-          tpDebt += config.garbageResidentialRate;
+          // Garbage
+          if (t.hasGarbageService) {
+            const hasPaid = transactions.some(tx =>
+              tx.taxpayerId === t.id &&
+              tx.taxType === TaxType.BASURA &&
+              (tx.metadata?.month === m || new Date(tx.date).getMonth() + 1 === m) &&
+              new Date(tx.date).getFullYear() === currentYear &&
+              tx.status === 'PAGADO'
+            );
+            if (!hasPaid) {
+              const rate = t.type === 'JURIDICA' ? (config?.garbageCommercialRate || 0) : (config?.garbageResidentialRate || 0);
+              tpDebt += rate;
+            }
+          }
         }
       }
 
@@ -158,25 +170,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
         </div>
 
         {/* Helper for testing notifications */}
-        <button
-          onClick={() => {
-            // Dispatch a fake storage event or just call alert? No, we need to trigger the TOAST state in App.tsx. 
-            // Since this is a child component, we can't easily set App state unless passed.
-            // BUT we can trigger a Notification API test directly.
-            new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
-            alert("Se ha enviado una notificación de prueba al navegador. Si no la ves, revisa los permisos del sitio.");
-          }}
-          className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-300"
-        >
-          Test Notificación
-        </button>
+        <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-all"
+            >
+              <RefreshCw size={16} /> Refrescar
+            </button>
+          )}
+          <button
+            onClick={() => {
+              // Dispatch a fake storage event or just call alert? No, we need to trigger the TOAST state in App.tsx. 
+              // Since this is a child component, we can't easily set App state unless passed.
+              // BUT we can trigger a Notification API test directly.
+              new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
+              alert("Se ha enviado una notificación de prueba al navegador. Si no la ves, revisa los permisos del sitio.");
+            }}
+            className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-300"
+          >
+            Test Notificación
+          </button>
+        </div>
       </div >
 
       {/* KPI Cards */}
       < div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6" >
         <StatCard
           title="Recaudación Total"
-          value={`B/. ${totalRevenue.toFixed(2)}`}
+          value={`B/. ${(totalRevenue || 0).toFixed(2)}`}
           subtext={`Ingresos del periodo (${timeFilter === 'DAY' ? 'Hoy' : timeFilter === 'WEEK' ? 'Semana' : 'Mes'})`}
           icon={DollarSign}
           color="bg-emerald-500 text-emerald-600"
@@ -198,7 +220,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
         />
         <StatCard
           title="Dinero por Cobrar"
-          value={`B/. ${debtStats.amount.toFixed(2)}`}
+          value={`B/. ${(debtStats?.amount || 0).toFixed(2)}`}
           subtext="Deuda total estimada"
           icon={AlertCircle}
           color="bg-red-500 text-red-600"
@@ -267,7 +289,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
                   <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
                   <span className="text-slate-600">{item.name}</span>
                 </div>
-                <span className="font-bold text-slate-800">B/. {item.value.toFixed(2)}</span>
+                <span className="font-bold text-slate-800">B/. {(item.value || 0).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -299,9 +321,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, taxpayers, c
                   <td className="px-6 py-4 font-bold text-slate-700">{taxpayers.find(t => t.id === tx.taxpayerId)?.name || 'Desconocido'}</td>
                   <td className="px-6 py-4">{tx.description}</td>
                   <td className="px-6 py-4 text-slate-500">{tx.date}</td>
-                  <td className="px-6 py-4 text-right font-bold">B/. {tx.amount.toFixed(2)}</td>
+                  <td className="px-6 py-4 text-right font-bold">B/. {(tx.amount || 0).toFixed(2)}</td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${tx.status === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                      tx.status === 'PAGADO' 
+                        ? 'bg-emerald-100 text-emerald-700' 
+                        : tx.status === 'ANULADO'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-amber-100 text-amber-700'
+                    }`}>
                       {tx.status}
                     </span>
                   </td>

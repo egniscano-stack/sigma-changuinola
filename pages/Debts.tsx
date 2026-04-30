@@ -9,12 +9,11 @@ interface DebtsProps {
   userRole?: string;
 }
 
-interface PendingItem {
+interface PendingSummary {
   taxpayer: Taxpayer;
-  type: TaxType;
-  description: string;
-  dueDate: string;
+  debtCount: number;
   isOverdue: boolean;
+  earliestDueDate: string;
 }
 
 export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay, userRole }) => {
@@ -27,89 +26,94 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
   const [historyYear, setHistoryYear] = useState(new Date().getFullYear());
 
   // --- LOGIC 1: CALCULATE PENDING DEBTS (CURRENT) ---
-  const pendingDebts = useMemo(() => {
-    const debts: PendingItem[] = [];
+  const pendingSummaries = useMemo(() => {
+    const taxpayerMap = new Map<string, { tp: Taxpayer, count: number, overdue: boolean, earliest: string }>();
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth() + 1;
     const activeStatuses = ['ACTIVO', 'MOROSO'];
 
     taxpayers.forEach(tp => {
-      // 0. Pre-existing Balance / Deuda
+      let count = 0;
+      let overdue = false;
+      let earliest = '9999-12-31';
+
+      // 0. Balance
       if ((tp.balance || 0) > 0) {
-        debts.push({
-          taxpayer: tp,
-          type: TaxType.COMERCIO, // Generic fallback
-          description: `Saldo Pendiente / Arrastre (B/. ${tp.balance?.toFixed(2)})`,
-          dueDate: `${currentYear}-01-01`, // Assumptions
-          isOverdue: true
-        });
+        count++;
+        overdue = true;
+        earliest = `${currentYear}-01-01`;
       }
 
-      // 1. Commercial Tax
-      if (tp.hasCommercialActivity && activeStatuses.includes(tp.status)) {
-        const hasPaid = transactions.some(t => {
-          const tDate = new Date(t.date);
-          return t.taxpayerId === tp.id && t.taxType === TaxType.COMERCIO &&
-            t.status === 'PAGADO' && tDate.getMonth() + 1 === currentMonth && tDate.getFullYear() === currentYear;
-        });
-        if (!hasPaid) {
-          debts.push({
-            taxpayer: tp,
-            type: TaxType.COMERCIO,
-            description: `Impuesto Comercial (${tp.commercialCategory})`,
-            dueDate: `${currentYear}-${currentMonth.toString().padStart(2, '0')}-30`,
-            isOverdue: currentDate.getDate() > 15
-          });
+      // Check all months
+      for (let m = 1; m <= currentMonth; m++) {
+        // Commercial
+        if (tp.hasCommercialActivity && activeStatuses.includes(tp.status)) {
+          const hasPaid = transactions.some(t => 
+            t.taxpayerId === tp.id && t.status === 'PAGADO' &&
+            (t.metadata?.month === m && t.metadata?.year === currentYear || 
+             (t.taxType === TaxType.COMERCIO && new Date(t.date).getMonth() + 1 === m && new Date(t.date).getFullYear() === currentYear))
+          );
+          if (!hasPaid) {
+            count++;
+            const dueDate = `${currentYear}-${m.toString().padStart(2, '0')}-15`;
+            if (dueDate < earliest) earliest = dueDate;
+            if (m < currentMonth || (m === currentMonth && currentDate.getDate() > 15)) overdue = true;
+          }
+        }
+
+        // Garbage
+        if (tp.hasGarbageService && activeStatuses.includes(tp.status)) {
+          const hasPaid = transactions.some(t => 
+            t.taxpayerId === tp.id && t.status === 'PAGADO' &&
+            (t.metadata?.month === m && t.metadata?.year === currentYear || 
+             (t.taxType === TaxType.BASURA && new Date(t.date).getMonth() + 1 === m && new Date(t.date).getFullYear() === currentYear))
+          );
+          if (!hasPaid) {
+            count++;
+            const dueDate = `${currentYear}-${m.toString().padStart(2, '0')}-15`;
+            if (dueDate < earliest) earliest = dueDate;
+            if (m < currentMonth || (m === currentMonth && currentDate.getDate() > 15)) overdue = true;
+          }
         }
       }
 
-      // 2. Garbage Tax
-      if (tp.hasGarbageService && activeStatuses.includes(tp.status)) {
-        const hasPaid = transactions.some(t => {
-          const tDate = new Date(t.date);
-          return t.taxpayerId === tp.id && t.taxType === TaxType.BASURA &&
-            t.status === 'PAGADO' && tDate.getMonth() + 1 === currentMonth && tDate.getFullYear() === currentYear;
-        });
-        if (!hasPaid) {
-          debts.push({
-            taxpayer: tp,
-            type: TaxType.BASURA,
-            description: 'Tasa de Aseo / Basura',
-            dueDate: `${currentYear}-${currentMonth.toString().padStart(2, '0')}-30`,
-            isOverdue: currentDate.getDate() > 15
-          });
-        }
-      }
-
-      // 3. Vehicle Tax
+      // Vehicles
       if (tp.vehicles && tp.vehicles.length > 0 && activeStatuses.includes(tp.status)) {
         tp.vehicles.forEach(v => {
           const lastDigit = parseInt(v.plate.slice(-1)) || 1;
           const renewalMonth = lastDigit === 0 ? 10 : lastDigit;
-
           if (currentMonth >= renewalMonth) {
-            const hasPaid = transactions.some(t => t.taxpayerId === tp.id && t.taxType === TaxType.VEHICULO && t.metadata?.plateNumber === v.plate && new Date(t.date).getFullYear() === currentYear);
+            const hasPaid = transactions.some(t => 
+              t.taxpayerId === tp.id && t.status === 'PAGADO' && t.taxType === TaxType.VEHICULO &&
+              (t.metadata?.plateNumber === v.plate || t.description.includes(v.plate)) &&
+              new Date(t.date).getFullYear() === currentYear
+            );
             if (!hasPaid) {
-              const monthName = new Date(currentYear, renewalMonth - 1).toLocaleString('es-ES', { month: 'long' });
-              debts.push({
-                taxpayer: tp,
-                type: TaxType.VEHICULO,
-                description: `Placa ${v.plate} - Mes: ${monthName}`,
-                dueDate: `${currentYear}-${renewalMonth.toString().padStart(2, '0')}-30`,
-                isOverdue: currentMonth > renewalMonth
-              });
+              count++;
+              const dueDate = `${currentYear}-${renewalMonth.toString().padStart(2, '0')}-30`;
+              if (dueDate < earliest) earliest = dueDate;
+              if (currentMonth > renewalMonth) overdue = true;
             }
           }
         });
       }
+
+      if (count > 0) {
+        taxpayerMap.set(tp.id, { tp, count, overdue, earliest });
+      }
     });
 
-    return debts;
+    return Array.from(taxpayerMap.values()).map(item => ({
+      taxpayer: item.tp,
+      debtCount: item.count,
+      isOverdue: item.overdue,
+      earliestDueDate: item.earliest
+    }));
   }, [taxpayers, transactions]);
 
   // --- FILTERING LOGIC ---
-  const filteredDebts = pendingDebts.filter(item =>
+  const filteredSummaries = pendingSummaries.filter(item =>
     item.taxpayer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.taxpayer.docId.includes(searchTerm)
   );
@@ -192,7 +196,7 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
       {/* CONTENT: VIEW 1 - PENDING DEBTS */}
       {viewMode === 'PENDING' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {filteredDebts.length > 0 ? (
+          {filteredSummaries.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
@@ -204,7 +208,7 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
-                  {filteredDebts.map((item, idx) => (
+                  {filteredSummaries.map((item, idx) => (
                     <tr key={idx} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="font-bold text-slate-800">{item.taxpayer.name}</div>
@@ -212,11 +216,14 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          {item.type === TaxType.VEHICULO && <Car size={16} className="text-blue-500 mr-2" />}
-                          {item.type === TaxType.COMERCIO && <Store size={16} className="text-indigo-500 mr-2" />}
-                          {item.type === TaxType.BASURA && <Trash2 size={16} className="text-emerald-500 mr-2" />}
-                          <span className="text-slate-700 font-medium">{item.description}</span>
+                          <AlertCircle size={16} className="text-red-500 mr-2" />
+                          <span className="text-slate-700 font-medium">
+                            {item.debtCount} concepto(s) pendiente(s)
+                          </span>
                         </div>
+                        {item.taxpayer.balance && item.taxpayer.balance > 0 && (
+                          <div className="text-[10px] text-red-500 font-bold mt-0.5">Incluye Saldo Anterior</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         {item.isOverdue ? (
@@ -228,7 +235,7 @@ export const Debts: React.FC<DebtsProps> = ({ taxpayers, transactions, onGoToPay
                             <Calendar size={12} className="mr-1" /> Por Vencer
                           </span>
                         )}
-                        <div className="text-[10px] text-slate-400 mt-1">Vence: {item.dueDate}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">Más antiguo: {item.earliestDueDate}</div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {userRole !== 'AUDITOR' && (

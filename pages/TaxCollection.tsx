@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Taxpayer, TaxConfig, TaxType, CommercialCategory, PaymentMethod, Transaction, User, MunicipalityInfo } from '../types';
-import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, XCircle, X, ArrowLeft, Save, User as UserIcon, MapPin, Download, AlertCircle, Lock } from 'lucide-react';
+import { Taxpayer, TaxConfig, TaxType, CommercialCategory, PaymentMethod, Transaction, User, MunicipalityInfo, AdminRequest, RequestType, RequestStatus } from '../types';
+import { Car, Building2, Trash2, Store, CreditCard, Search, Banknote, Printer, CheckCircle, XCircle, X, ArrowLeft, Save, User as UserIcon, MapPin, Download, AlertCircle, Lock, History, RefreshCw, Bell } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
@@ -17,10 +17,12 @@ interface TaxCollectionProps {
   adminRequests?: AdminRequest[];
   onCreateRequest?: (req: AdminRequest) => void;
   onArchiveRequest?: (id: string) => void;
+  onRefresh?: () => void;
+  onDirectAdminAuth?: (password: string, req: AdminRequest) => Promise<boolean>;
 }
-import { AdminRequest, RequestType } from '../types';
 
-export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest, onArchiveRequest }) => {
+
+export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transactions, config, onPayment, currentUser, municipalityInfo, initialTaxpayer, adminRequests = [], onCreateRequest, onArchiveRequest, onRefresh, onDirectAdminAuth }) => {
   const [selectedTax, setSelectedTax] = useState<TaxType>(TaxType.VEHICULO);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,38 +54,43 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   // Logic to load Approved Arrangement
   const [loadedArrangement, setLoadedArrangement] = useState<AdminRequest | null>(null);
 
-  // --- NOTIFICATION LOGIC ---
+  // Offline Admin Auth
+  const [offlineAdminPassword, setOfflineAdminPassword] = useState('');
+
+  // History Filter for Cashier
+  const [historyFilterDate, setHistoryFilterDate] = useState(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD
+  const [showRequestsDropdown, setShowRequestsDropdown] = useState(false);
+
+  // Centralized notifications now handled in App.tsx to avoid Admin/Cashier confusion
   const prevRequestsRef = useRef<AdminRequest[]>([]);
-
-  useEffect(() => {
-    if (adminRequests.length > 0) {
-      adminRequests.forEach(req => {
-        const prev = prevRequestsRef.current.find(p => p.id === req.id);
-        if (prev && prev.status === 'PENDING' && req.status !== 'PENDING') {
-          const title = req.status === 'APPROVED' ? 'Solicitud Aprobada' : 'Solicitud Rechazada';
-          const body = req.status === 'APPROVED'
-            ? `Su solicitud para ${req.taxpayerName} ha sido aprobada.`
-            : `Su solicitud para ${req.taxpayerName} ha sido rechazada: ${req.responseNote || ''}`;
-
-          if (Notification.permission === 'granted') {
-            new Notification(title, { body, icon: '/sigma-logo-final.png' });
-          }
-        }
-      });
-    }
-    prevRequestsRef.current = adminRequests;
-  }, [adminRequests]);
 
   // Pre-fill from props if available
   useEffect(() => {
     if (initialTaxpayer) {
       setSelectedTaxpayerId(initialTaxpayer.id);
-      // Try to guess tax type based on flags
+      // Switch tax type based on what they have
       if (initialTaxpayer.hasCommercialActivity) setSelectedTax(TaxType.COMERCIO);
       else if (initialTaxpayer.hasGarbageService) setSelectedTax(TaxType.BASURA);
+      else if (initialTaxpayer.hasConstruction) setSelectedTax(TaxType.CONSTRUCCION);
       else if (initialTaxpayer.vehicles && initialTaxpayer.vehicles.length > 0) setSelectedTax(TaxType.VEHICULO);
     }
   }, [initialTaxpayer]);
+
+  // Ensure selected tax is valid for the current taxpayer
+  useEffect(() => {
+    if (activeTaxpayer) {
+      const available = [
+        { id: TaxType.VEHICULO, enabled: (activeTaxpayer.vehicles?.length || 0) > 0 },
+        { id: TaxType.CONSTRUCCION, enabled: activeTaxpayer.hasConstruction },
+        { id: TaxType.BASURA, enabled: activeTaxpayer.hasGarbageService },
+        { id: TaxType.COMERCIO, enabled: activeTaxpayer.hasCommercialActivity },
+      ].filter(t => t.enabled);
+
+      if (available.length > 0 && !available.find(t => t.id === selectedTax)) {
+        setSelectedTax(available[0].id);
+      }
+    }
+  }, [activeTaxpayer, selectedTax]);
 
   // --- DEBT CALCULATION LOGIC (Consolidated View) ---
   const taxpayerDebts = useMemo(() => {
@@ -93,78 +100,107 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth() + 1;
 
-    // 1. Balance / Historical
+    // 1. Balance / Historical (Prioritizing this)
     if ((activeTaxpayer.balance || 0) > 0) {
       debts.push({
         id: 'balance',
         type: 'DEUDA_HISTORICA',
-        label: 'Saldo Pendiente / Arrastre',
+        label: 'Deuda Acumulada (Años Anteriores)',
         amount: activeTaxpayer.balance,
-        description: `Saldo Pendiente Acumulado`,
+        description: `Saldo pendiente de periodos anteriores`,
         isPriority: true
       });
     }
 
-    // 2. Commercial
-    if (activeTaxpayer.hasCommercialActivity && activeTaxpayer.status !== 'BLOQUEADO') {
-      const hasPaid = transactions.some(t =>
-        t.taxpayerId === activeTaxpayer.id &&
-        t.taxType === TaxType.COMERCIO &&
-        t.status === 'PAGADO' &&
-        new Date(t.date).getMonth() + 1 === currentMonth &&
-        new Date(t.date).getFullYear() === currentYear
-      );
-      if (!hasPaid) {
-        const amount = activeTaxpayer.commercialCategory ? config.commercialRates[activeTaxpayer.commercialCategory] : config.commercialBaseRate;
-        debts.push({
-          id: `com-${currentMonth}-${currentYear}`,
-          type: TaxType.COMERCIO,
-          label: `Impuesto Comercial - Mes Actual`,
-          amount: amount || 0,
-          description: `Impuesto Comercial (${activeTaxpayer.commercialCategory})`,
-          metadata: { month: currentMonth, year: currentYear }
+    // 2. Commercial & 3. Garbage (Iterate through months of the current year)
+    for (let m = 1; m <= currentMonth; m++) {
+      const monthName = new Date(currentYear, m - 1).toLocaleString('es-ES', { month: 'long' });
+
+      // Commercial
+      if (activeTaxpayer.hasCommercialActivity && activeTaxpayer.status !== 'BLOQUEADO') {
+        const hasPaidCom = (transactions || []).some(t => {
+          if (t.taxpayerId !== activeTaxpayer.id || t.status !== 'PAGADO') return false;
+          
+          // 1. Check if paid via Consolidated Payment
+          if (t.metadata?.isConsolidated && t.metadata?.originalItems) {
+            return t.metadata.originalItems.some((i: any) => i.label.includes(`Comercial - ${monthName}`));
+          }
+
+          if (t.taxType !== TaxType.COMERCIO) return false;
+          
+          // 2. Strict metadata check (explicit month payment)
+          if (t.metadata?.month === m && t.metadata?.year === currentYear) return true;
+          
+          return false; // Removed loose date-based fallback to prevent accidental clearing of unrelated debts
         });
+
+        if (!hasPaidCom) {
+          const rates = config?.commercialRates || {};
+          const amount = activeTaxpayer.commercialCategory ? (rates[activeTaxpayer.commercialCategory] || config?.commercialBaseRate || 0) : (config?.commercialBaseRate || 0);
+          debts.push({
+            id: `com-${m}-${currentYear}`,
+            type: TaxType.COMERCIO,
+            label: `Impuesto Comercial - ${monthName}`,
+            amount: amount,
+            description: `Mes de ${monthName} ${currentYear}`,
+            metadata: { month: m, year: currentYear }
+          });
+        }
+      }
+
+      // Garbage
+      if (activeTaxpayer.hasGarbageService && activeTaxpayer.status !== 'BLOQUEADO') {
+        const hasPaidBas = (transactions || []).some(t => {
+          if (t.taxpayerId !== activeTaxpayer.id || t.status !== 'PAGADO') return false;
+          
+          // 1. Check if paid via Consolidated Payment
+          if (t.metadata?.isConsolidated && t.metadata?.originalItems) {
+            return t.metadata.originalItems.some((i: any) => i.label.includes(`Tasa de Aseo - ${monthName}`));
+          }
+
+          if (t.taxType !== TaxType.BASURA) return false;
+          
+          // 2. Strict metadata check
+          if (t.metadata?.month === m && t.metadata?.year === currentYear) return true;
+          
+          return false; // Removed loose date-based fallback
+        });
+
+        if (!hasPaidBas) {
+          const rate = activeTaxpayer.type === 'JURIDICA' ? (config?.garbageCommercialRate || 0) : (config?.garbageResidentialRate || 0);
+          debts.push({
+            id: `bas-${m}-${currentYear}`,
+            type: TaxType.BASURA,
+            label: `Tasa de Aseo - ${monthName}`,
+            amount: rate,
+            description: `Mes de ${monthName} ${currentYear}`,
+            metadata: { month: m, year: currentYear }
+          });
+        }
       }
     }
 
-    // 3. Garbage
-    if (activeTaxpayer.hasGarbageService && activeTaxpayer.status !== 'BLOQUEADO') {
-      const hasPaid = transactions.some(t =>
-        t.taxpayerId === activeTaxpayer.id &&
-        t.taxType === TaxType.BASURA &&
-        t.status === 'PAGADO' &&
-        new Date(t.date).getMonth() + 1 === currentMonth &&
-        new Date(t.date).getFullYear() === currentYear
-      );
-      if (!hasPaid) {
-        // Simple logic for rate based on type logic in portal/debts
-        const rate = activeTaxpayer.type === 'JURIDICA' ? config.garbageCommercialRate : config.garbageResidentialRate;
-        debts.push({
-          id: `bas-${currentMonth}-${currentYear}`,
-          type: TaxType.BASURA,
-          label: `Tasa de Aseo - Mes Actual`,
-          amount: rate,
-          description: 'Tasa de Aseo / Basura',
-          metadata: { month: currentMonth, year: currentYear }
-        });
-      }
-    }
-
-    // 4. Vehicles
+    // 4. Vehicles (Annual)
     if (activeTaxpayer.vehicles && activeTaxpayer.vehicles.length > 0) {
       activeTaxpayer.vehicles.forEach(v => {
-        const hasPaid = transactions.some(t =>
-          t.taxpayerId === activeTaxpayer.id &&
-          t.taxType === TaxType.VEHICULO &&
-          t.metadata?.plateNumber === v.plate &&
-          new Date(t.date).getFullYear() === currentYear
-        );
+        const hasPaid = transactions.some(t => {
+          if (t.taxpayerId !== activeTaxpayer.id || t.status !== 'PAGADO') return false;
+          
+          // Check if paid via Consolidated Payment
+          if (t.metadata?.isConsolidated && t.metadata?.originalItems) {
+            return t.metadata.originalItems.some((i: any) => i.label.includes(`Placa ${v.plate}`));
+          }
+
+          return t.taxType === TaxType.VEHICULO &&
+                 t.metadata?.plateNumber === v.plate &&
+                 new Date(t.date).getFullYear() === currentYear;
+        });
         if (!hasPaid) {
           debts.push({
             id: `veh-${v.plate}-${currentYear}`,
             type: TaxType.VEHICULO,
             label: `Impuesto Vehicular (Placa ${v.plate})`,
-            amount: config.plateCost,
+            amount: config?.plateCost || 0,
             description: `Impuesto de Circulación - Placa ${v.plate}`,
             metadata: { plateNumber: v.plate, year: currentYear }
           });
@@ -184,6 +220,29 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       description: debt.description,
       metadata: debt.metadata
     });
+    setLastTransaction(tx);
+    setShowInvoice(true);
+  };
+
+  const handlePayAllDebts = () => {
+    if (!activeTaxpayer || taxpayerDebts.length === 0) return;
+
+    const totalAmount = taxpayerDebts.reduce((acc, d) => acc + (d.amount || 0), 0);
+    const summaryDesc = `Pago Total de Deudas Pendientes (${taxpayerDebts.length} conceptos)`;
+
+    const tx = onPayment({
+      taxType: TaxType.COMERCIO, // Use a general type for consolidated
+      taxpayerId: selectedTaxpayerId,
+      amount: totalAmount,
+      paymentMethod: paymentMethod,
+      description: summaryDesc,
+      metadata: { 
+        isConsolidated: true, 
+        itemsCount: taxpayerDebts.length,
+        originalItems: taxpayerDebts.map(d => ({ label: d.label, amount: d.amount }))
+      }
+    });
+
     setLastTransaction(tx);
     setShowInvoice(true);
   };
@@ -223,16 +282,17 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   const calculateTotal = () => {
     switch (selectedTax) {
       case TaxType.VEHICULO:
-        return config.plateCost;
+        return config?.plateCost || 0;
       case TaxType.CONSTRUCCION:
-        return constArea * config.constructionRatePerSqm;
+        return constArea * (config?.constructionRatePerSqm || 0);
       case TaxType.BASURA:
-        return trashType === 'RESIDENCIAL' ? config.garbageResidentialRate : config.garbageCommercialRate;
+        return trashType === 'RESIDENCIAL' ? (config?.garbageResidentialRate || 0) : (config?.garbageCommercialRate || 0);
       case TaxType.COMERCIO:
         if (activeTaxpayer?.commercialCategory) {
-          return config.commercialRates[activeTaxpayer.commercialCategory] || 0;
+          const rates = config?.commercialRates || {};
+          return rates[activeTaxpayer.commercialCategory] || config?.commercialBaseRate || 0;
         }
-        return config.commercialBaseRate;
+        return config?.commercialBaseRate || 0;
       default:
         return 0;
     }
@@ -260,13 +320,23 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       return;
     }
 
+    // Auto-assign to oldest debt if applicable
+    let finalMetadata: any = { plateNumber, constArea, trashType };
+    
+    if (selectedTax === TaxType.BASURA || selectedTax === TaxType.COMERCIO) {
+      const oldestDebt = taxpayerDebts.find(d => d.type === selectedTax);
+      if (oldestDebt && oldestDebt.metadata) {
+        finalMetadata = { ...finalMetadata, ...oldestDebt.metadata };
+      }
+    }
+
     const tx = onPayment({
       taxType: selectedTax,
       taxpayerId: selectedTaxpayerId,
       amount: amount,
       paymentMethod: paymentMethod,
       description: getTaxDescription(),
-      metadata: { plateNumber, constArea, trashType }
+      metadata: finalMetadata
     });
 
     setLastTransaction(tx);
@@ -367,7 +437,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
   };
 
   const handleDailyClosing = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA');
     const myTxs = transactions.filter(t => t.date === today && t.tellerName === currentUser.name);
 
     if (myTxs.length === 0) {
@@ -378,59 +448,127 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
     const total = myTxs.reduce((acc, t) => acc + t.amount, 0);
 
     // Reuse similar logic to Reports but simplified for immediate download
-    const pdf = new jsPDF();
+    // Landscape mode for more columns
+    const pdf = new jsPDF('l', 'mm', 'a4');
 
     // Header
-    pdf.setFontSize(20);
-    pdf.text("Cierre de Caja Diario (Cajero)", 105, 20, { align: 'center' });
+    pdf.setFontSize(22);
+    pdf.setTextColor(30, 41, 59);
+    pdf.text("Cierre de Caja Diario Detallado", 148, 20, { align: 'center' });
 
-    pdf.setFontSize(12);
-    pdf.text(`Fecha: ${today}`, 20, 35);
-    pdf.text(`Cajero: ${currentUser.name}`, 20, 42);
-    pdf.text(`Sucursal: Changuinola Principal`, 20, 49);
-
-    // Summary
-    pdf.setDrawColor(0);
-    pdf.setFillColor(240, 240, 240);
-    pdf.rect(140, 30, 50, 20, 'F');
     pdf.setFontSize(10);
-    pdf.text("Total Recaudado:", 145, 38);
-    pdf.setFontSize(14);
-    pdf.setFont("helvetica", "bold");
-    pdf.text(`B/. ${total.toFixed(2)}`, 145, 45);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(`Fecha del Reporte: ${today}`, 20, 35);
+    pdf.text(`Cajero Responsable: ${currentUser?.name || 'S/N'} (${currentUser?.username || 'N/A'})`, 20, 42);
+    pdf.text(`Sucursal: Tesorería Municipal de Changuinola`, 20, 49);
 
-    // Table
+    // Summary Box
+    pdf.setDrawColor(226, 232, 240);
+    pdf.setFillColor(248, 250, 252);
+    pdf.rect(220, 30, 57, 25, 'F');
+    pdf.setTextColor(71, 85, 105);
+    pdf.setFontSize(10);
+    pdf.text("TOTAL RECAUDADO NETO", 225, 38);
+    pdf.setFontSize(16);
+    pdf.setFont("helvetica", "bold");
+    pdf.setTextColor(15, 23, 42);
+    pdf.text(`B/. ${total.toFixed(2)}`, 225, 48);
+
+    // Table Header
     let y = 65;
-    pdf.setFontSize(10);
+    pdf.setFontSize(9);
+    pdf.setFillColor(241, 245, 249);
+    pdf.rect(20, y - 5, 257, 8, 'F');
+    pdf.setTextColor(71, 85, 105);
     pdf.setFont("helvetica", "bold");
-    pdf.text("Hora", 20, y);
-    pdf.text("ID", 40, y);
-    pdf.text("Descripción", 80, y);
-    pdf.text("Método", 150, y);
-    pdf.text("Monto", 180, y);
+    
+    pdf.text("FECHA / HORA", 22, y);
+    pdf.text("CONTRIBUYENTE / CORREGIMIENTO", 60, y);
+    pdf.text("CONCEPTO / DETALLE", 140, y);
+    pdf.text("MÉTODO", 205, y);
+    pdf.text("ESTADO", 230, y);
+    pdf.text("MONTO", 272, y, { align: 'right' });
 
-    pdf.line(20, y + 2, 190, y + 2);
     y += 8;
 
     pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(51, 65, 85);
+    
     myTxs.forEach(t => {
-      if (y > 280) { pdf.addPage(); y = 20; }
-      pdf.text(t.time, 20, y);
-      pdf.text(t.id, 40, y);
-      const desc = t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description;
-      pdf.text(desc, 80, y);
-      pdf.text(t.paymentMethod, 150, y);
-      pdf.text(t.amount.toFixed(2), 190, y, { align: 'right' });
-      y += 7;
+      if (y > 185) { pdf.addPage('l'); y = 20; }
+      
+      const isVoidRecord = t.id.startsWith('VOID-');
+      const isAnnulledOriginal = t.status === 'ANULADO' && !isVoidRecord;
+      
+      if (isVoidRecord || isAnnulledOriginal) {
+        pdf.setTextColor(220, 38, 38); // Red-600
+      } else {
+        pdf.setTextColor(30, 41, 59);
+      }
+
+      // Format Date for table: DD/MM/YY
+      const dateParts = t.date.split('-'); // YYYY-MM-DD
+      const shortDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0].slice(-2)}`;
+      const timeDisplay = `${shortDate}\n${t.time}`;
+
+      // Lookup Taxpayer Info
+      const tp = taxpayers.find(taxp => taxp.id === t.taxpayerId);
+      const tpDisplay = `${tp?.name || 'S/N'}\n(${tp?.corregimiento || 'Sin Corregimiento'})`;
+
+      // Clean Concepto (Translation)
+      let concepto = '';
+      switch(t.taxType) {
+        case TaxType.VEHICULO: concepto = 'PLACA'; break;
+        case TaxType.BASURA: concepto = 'BASURA'; break;
+        case TaxType.COMERCIO: concepto = 'NEGOCIO'; break;
+        case TaxType.CONSTRUCCION: concepto = 'CONSTRUCCIÓN'; break;
+        default: concepto = t.taxType;
+      }
+      
+      // If it's a void, prefix it
+      if (isVoidRecord) concepto = `ANULACIÓN: ${concepto}`;
+
+      pdf.setFontSize(8);
+      pdf.text(timeDisplay, 22, y);
+      
+      pdf.text(tpDisplay, 60, y);
+      
+      pdf.setFontSize(9);
+      // Clean description to remove "Mes de ...", years, and date formats
+      const cleanDesc = t.description
+        .replace(/Mes de \w+ \d{4}/gi, '') // Remove "Mes de Enero 2026"
+        .replace(/Mes de \w+/gi, '')       // Remove "Mes de Enero"
+        .replace(/\d{4}/g, '')             // Remove any 4-digit year
+        .replace(/\d{4}-\d{2}-\d{2}/g, '') // Remove YYYY-MM-DD
+        .replace(/\d{2}\/\d{2}\/\d{2,4}/g, '') // Remove DD/MM/YY
+        .replace(/\s\s+/g, ' ')            // Remove double spaces
+        .trim();
+
+      const displayConcept = cleanDesc && cleanDesc.length > 1 ? `${concepto} - ${cleanDesc}` : concepto;
+      pdf.text(displayConcept.substring(0, 50), 140, y);
+      
+      pdf.text(t.paymentMethod || 'EFECTIVO', 205, y);
+      pdf.text(t.status === 'ANULADO' ? 'ANULADO' : 'PAGADO', 230, y);
+      pdf.text(t.amount.toFixed(2), 272, y, { align: 'right' });
+      
+      pdf.setDrawColor(241, 245, 249);
+      pdf.line(20, y + 5, 277, y + 5);
+      
+      y += 12;
     });
 
-    pdf.line(20, y, 190, y);
-    y += 10;
+    // Footer with signatures
+    if (y > 170) { pdf.addPage('l'); y = 20; }
+    y += 20;
+    pdf.setTextColor(71, 85, 105);
+    pdf.setFontSize(10);
+    pdf.text("__________________________", 50, y);
+    pdf.text("Firma del Cajero", 65, y + 7);
+    
+    pdf.text("__________________________", 190, y);
+    pdf.text("Firma de Auditoría / Tesorería", 195, y + 7);
 
-    pdf.setFont("helvetica", "bold");
-    pdf.text("Firma del Cajero: __________________________", 20, y + 20);
-
-    pdf.save(`Cierre_Caja_${currentUser.username}_${today}.pdf`);
+    pdf.save(`Cierre_Caja_${currentUser?.username || 'user'}_${today}.pdf`);
   };
 
   return (
@@ -608,7 +746,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                           </div>
                         </td>
                         <td className="py-2 text-right font-bold text-lg text-slate-800 align-top">
-                          B/. {lastTransaction.amount.toFixed(2)}
+                          B/. {(lastTransaction.amount || 0).toFixed(2)}
                         </td>
                       </tr>
                     </tbody>
@@ -620,7 +758,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
               <div className="mt-4 flex justify-end">
                 <div className="bg-slate-100 px-6 py-2 rounded flex items-center gap-4 border border-slate-200">
                   <span className="text-sm font-bold text-slate-600">TOTAL PAGADO</span>
-                  <span className="text-xl font-bold text-slate-900">B/. {lastTransaction.amount.toFixed(2)}</span>
+                  <span className="text-xl font-bold text-slate-900">B/. {(lastTransaction.amount || 0).toFixed(2)}</span>
                 </div>
               </div>
 
@@ -662,30 +800,133 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
           <h2 className="text-xl md:text-2xl font-bold text-slate-800">Caja Principal</h2>
           <p className="text-slate-500 text-sm">Procesamiento de pagos y emisión de recibos.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (Notification.permission !== 'granted') {
-                Notification.requestPermission().then(permission => {
-                  if (permission === 'granted') {
-                    new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
-                  }
-                });
-              } else {
-                new Notification('Prueba de Sistema', { body: 'Las notificaciones funcionan correctamente.', icon: '/sigma-logo-final.png' });
-              }
-              alert("Se ha enviado una notificación de prueba. Asegúrese de permitir las notificaciones en su navegador.");
-            }}
-            className="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-bold hover:bg-slate-300 transition-colors"
-          >
-            Test Notificación
-          </button>
+        <div className="flex items-center gap-3 relative">
+          
+          {/* Refresh Button */}
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-all"
+              title="Forzar actualización desde el servidor"
+            >
+              <RefreshCw size={16} /> <span className="hidden sm:inline">Refrescar</span>
+            </button>
+          )}
+
+          {/* Admin Requests Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowRequestsDropdown(!showRequestsDropdown)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg font-bold text-xs transition-all border ${
+                (adminRequests || []).filter(r => r.status === 'APPROVED').length > 0 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 animate-pulse' 
+                  : 'bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+            >
+              <Bell size={16} />
+              <span className="hidden md:inline">Solicitudes</span>
+              { (adminRequests || []).filter(r => r.status !== 'ARCHIVED').length > 0 && (
+                <span className="bg-red-500 text-white text-[10px] h-4 w-4 flex items-center justify-center rounded-full">
+                  {(adminRequests || []).filter(r => r.status !== 'ARCHIVED').length}
+                </span>
+              )}
+            </button>
+
+            {showRequestsDropdown && (
+              <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden z-[100] animate-scale-up">
+                <div className="bg-slate-800 text-white p-3 flex justify-between items-center">
+                  <h4 className="font-bold text-xs flex items-center gap-2">
+                    <Banknote size={14} /> Historial de Solicitudes
+                  </h4>
+                  <button onClick={() => setShowRequestsDropdown(false)}><X size={14} /></button>
+                </div>
+                <div className="max-h-96 overflow-y-auto p-2 bg-slate-50 space-y-2">
+                  {(adminRequests || []).filter(r => r.status !== 'ARCHIVED').length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs italic">
+                      No hay solicitudes pendientes.
+                    </div>
+                  ) : (
+                    [...(adminRequests || [])].filter(r => r.status !== 'ARCHIVED').reverse().map(req => (
+                      <div key={req.id} className={`p-3 rounded-lg border text-xs shadow-sm relative group ${
+                        req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
+                        req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
+                      }`}>
+                        {req.status !== 'PENDING' && (
+                          <button
+                            onClick={() => onArchiveRequest && onArchiveRequest(req.id)}
+                            className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                        <div className="flex justify-between items-start mb-1 pr-4">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
+                          </span>
+                          <span className={`text-[9px] font-bold ${
+                            req.status === 'APPROVED' ? 'text-emerald-600' :
+                            req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
+                          }`}>
+                            {req.status === 'PENDING' ? 'ESPERANDO' : req.status}
+                          </span>
+                        </div>
+                        <p className="font-bold text-slate-700 truncate">{req.taxpayerName}</p>
+                        {req.status === 'APPROVED' && (
+                          <div className="mt-2">
+                            <p className="text-[10px] text-emerald-700 mb-1 font-medium">{req.responseNote || 'Aprobado'}</p>
+                            <button
+                              onClick={() => {
+                                setLoadedArrangement(req);
+                                  if (req.taxpayerId) {
+                                    setSelectedTaxpayerId(req.taxpayerId);
+                                  } else {
+                                    const tp = taxpayers.find(t => t.name === req.taxpayerName);
+                                    if (tp) setSelectedTaxpayerId(tp.id);
+                                  }
+                                
+                                if (req.type === 'PAYMENT_ARRANGEMENT') {
+                                  setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
+                                } else if (req.type === 'VOID_TRANSACTION' && req.transactionId) {
+                                  // Find original transaction to reload data for correction
+                                  const origTx = transactions.find(tx => tx.id === req.transactionId);
+                                  if (origTx) {
+                                    setSelectedTax(origTx.taxType);
+                                    setPaymentMethod(origTx.paymentMethod);
+                                    if (origTx.metadata?.plateNumber) setPlateNumber(origTx.metadata.plateNumber);
+                                    if (origTx.metadata?.trashType) setTrashType(origTx.metadata.trashType);
+                                    if (origTx.metadata?.constArea) setConstArea(origTx.metadata.constArea);
+                                    alert(`DATOS CARGADOS PARA CORRECCIÓN\n-------------------------\nContribuyente: ${req.taxpayerName}\nConcepto: ${origTx.description}\nPor favor, realice las correcciones y procese el nuevo cobro.`);
+                                  }
+                                }
+                                
+                                if (onArchiveRequest) onArchiveRequest(req.id);
+                                setShowRequestsDropdown(false);
+                              }}
+                              className="w-full bg-emerald-600 text-white text-[10px] font-bold py-1.5 rounded hover:bg-emerald-700"
+                            >
+                              CARGAR ACCIÓN
+                            </button>
+                          </div>
+                        )}
+                        {req.status === 'REJECTED' && (
+                          <p className="mt-1 text-[10px] text-red-600 italic">"{req.responseNote}"</p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleDailyClosing}
             className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-900 transition-colors shadow-sm"
           >
             <Download size={16} />
-            Cierre del Día
+            <span className="hidden sm:inline">Cierre del Día</span>
           </button>
         </div>
       </div>
@@ -699,8 +940,9 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
             </div>
             <input
               type="text"
+              autoFocus
               className="block w-full pl-10 pr-3 py-4 border border-slate-300 rounded-xl leading-5 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 sm:text-lg shadow-sm"
-              placeholder="Buscar Contribuyente..."
+              placeholder="Buscar Contribuyente (Nombre o Cédula)..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -810,7 +1052,17 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <AlertCircle size={20} /> Deudas Pendientes
               </h3>
-              <span className="text-xs bg-white/20 px-2 py-1 rounded font-mono">Total: B/. {taxpayerDebts.reduce((acc, d) => acc + (d.amount || 0), 0).toFixed(2)}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs bg-white/20 px-2 py-1 rounded font-mono">Total: B/. {(taxpayerDebts.reduce((acc, d) => acc + (d.amount || 0), 0) || 0).toFixed(2)}</span>
+                {taxpayerDebts.length > 1 && (
+                  <button
+                    onClick={handlePayAllDebts}
+                    className="bg-white text-red-600 px-3 py-1 rounded-lg text-xs font-bold shadow-md hover:bg-slate-50 transition-all active:scale-95"
+                  >
+                    Cobrar Totalidad
+                  </button>
+                )}
+              </div>
             </div>
             <div className="p-0">
               <table className="w-full text-left">
@@ -822,14 +1074,14 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {taxpayerDebts.map((debt, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                  {taxpayerDebts.map((debt) => (
+                    <tr key={debt.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-800">{debt.label}</p>
                         <p className="text-xs text-slate-500">{debt.description}</p>
                       </td>
-                      <td className="px-6 py-4 text-right font-bold text-slate-900">
-                        B/. {debt.amount?.toFixed(2)}
+                      <td className="px-6 py-4 text-right font-extrabold text-red-600">
+                        B/. {(debt.amount || 0).toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button
@@ -853,11 +1105,11 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
           <label className="block text-sm font-bold text-slate-700 mb-3">Tipo de Impuesto</label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { id: TaxType.VEHICULO, label: 'Placa', icon: Car },
-              { id: TaxType.CONSTRUCCION, label: 'Construcción', icon: Building2 },
-              { id: TaxType.BASURA, label: 'Basura', icon: Trash2 },
-              { id: TaxType.COMERCIO, label: 'Comercio', icon: Store },
-            ].map((tax) => {
+              { id: TaxType.VEHICULO, label: 'Placa', icon: Car, enabled: activeTaxpayer?.vehicles && activeTaxpayer.vehicles.length > 0 },
+              { id: TaxType.CONSTRUCCION, label: 'Construcción', icon: Building2, enabled: activeTaxpayer?.hasConstruction },
+              { id: TaxType.BASURA, label: 'Basura', icon: Trash2, enabled: activeTaxpayer?.hasGarbageService },
+              { id: TaxType.COMERCIO, label: 'Comercio', icon: Store, enabled: activeTaxpayer?.hasCommercialActivity },
+            ].filter(t => !activeTaxpayer || t.enabled).map((tax) => {
               const Icon = tax.icon;
               return (
                 <button
@@ -917,8 +1169,8 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                 onChange={(e) => setTrashType(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg bg-white"
               >
-                <option value="RESIDENCIAL">Residencial (B/. {config.garbageResidentialRate.toFixed(2)})</option>
-                <option value="COMERCIAL">Comercial (B/. {config.garbageCommercialRate.toFixed(2)})</option>
+                <option value="RESIDENCIAL">Residencial (B/. {(config?.garbageResidentialRate || 0).toFixed(2)})</option>
+                <option value="COMERCIAL">Comercial (B/. {(config?.garbageCommercialRate || 0).toFixed(2)})</option>
               </select>
             </div>
           )}
@@ -934,7 +1186,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
 
           <div className="flex justify-between items-center bg-slate-800 text-white p-4 rounded-lg">
             <span className="font-medium text-sm">Total a Pagar</span>
-            <span className="font-mono text-2xl font-bold">B/. {calculateTotal().toFixed(2)}</span>
+            <span className="font-mono text-2xl font-bold">B/. {(calculateTotal() || 0).toFixed(2)}</span>
           </div>
 
           <button
@@ -970,10 +1222,18 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                     value={newRequestType}
                     onChange={(e) => setNewRequestType(e.target.value as RequestType)}
                   >
-                    <option value="VOID_TRANSACTION">Anulación / Descobro</option>
-                    <option value="PAYMENT_ARRANGEMENT">Arreglo de Pago</option>
+                    <option value="VOID_TRANSACTION">Anulación / Descobro (Solicitar)</option>
+                    <option value="PAYMENT_ARRANGEMENT">Arreglo de Pago (Solicitar)</option>
+                    <option value="UPDATE_TAXPAYER">Editar Datos de Contribuyente (Solicitar)</option>
                   </select>
                 </div>
+
+                {newRequestType === 'UPDATE_TAXPAYER' && (
+                  <div className="bg-amber-50 p-3 rounded border border-amber-200 text-xs text-amber-800 mb-2">
+                    <p className="font-bold flex items-center gap-1"><AlertCircle size={14} /> Importante</p>
+                    <p>Al solicitar edición, el Administrador podrá permitirle modificar datos sensibles como nombre, categoría comercial o saldos.</p>
+                  </div>
+                )}
 
                 {newRequestType === 'VOID_TRANSACTION' && (
                   <div>
@@ -1011,9 +1271,76 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                   />
                 </div>
 
-                <div className="flex gap-3 pt-2">
+                {onDirectAdminAuth && (
+                  <div className="mt-6 pt-4 border-t border-slate-200">
+                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Autorización Presencial (Opcional)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        className="flex-1 border border-slate-300 rounded p-2 text-sm bg-slate-50 focus:bg-white"
+                        placeholder="PIN/Clave del Administrador"
+                        value={offlineAdminPassword}
+                        onChange={(e) => setOfflineAdminPassword(e.target.value)}
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!offlineAdminPassword) {
+                            alert("Ingrese la clave del administrador.");
+                            return;
+                          }
+                          
+                          let finalTaxpayerName = activeTaxpayer?.name || 'Desconocido';
+                          let finalTaxpayerId = selectedTaxpayerId;
+
+                          if (finalTaxpayerName === 'Desconocido' && requestTargetId) {
+                            const tx = transactions.find(t => t.id === requestTargetId);
+                            if (tx) {
+                              const tp = taxpayers.find(tp => tp.id === tx.taxpayerId);
+                              if (tp) {
+                                finalTaxpayerName = tp.name;
+                                finalTaxpayerId = tp.id;
+                              }
+                            }
+                          }
+
+                          const req: AdminRequest = {
+                            id: `REQ-${Date.now()}`,
+                            type: newRequestType,
+                            status: 'APPROVED', // Will be overridden in backend but useful for context
+                            requesterName: currentUser?.name || 'Cajero',
+                            taxpayerName: finalTaxpayerName,
+                            description: newRequestDesc || 'Autorizado presencialmente',
+                            transactionId: requestTargetId,
+                            taxpayerId: finalTaxpayerId, 
+                            totalDebt: newRequestType === 'PAYMENT_ARRANGEMENT' ? newRequestAmount : undefined,
+                            createdAt: new Date().toISOString()
+                          };
+
+                          const success = await onDirectAdminAuth(offlineAdminPassword, req);
+                          if (success) {
+                            setShowRequestModal(false);
+                            setNewRequestDesc('');
+                            setNewRequestAmount(0);
+                            setRequestTargetId('');
+                            setOfflineAdminPassword('');
+                          } else {
+                            alert("Credenciales de administrador incorrectas.");
+                          }
+                        }}
+                        className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center gap-2"
+                      >
+                        <Lock size={14} /> Autorizar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4 border-t border-slate-100 mt-2">
                   <button
-                    onClick={() => setShowRequestModal(false)}
+                    onClick={() => {
+                      setShowRequestModal(false);
+                      setOfflineAdminPassword('');
+                    }}
                     className="flex-1 bg-slate-100 text-slate-700 py-2 rounded hover:bg-slate-200"
                   >
                     Cancelar
@@ -1021,15 +1348,30 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                   <button
                     onClick={() => {
                       if (onCreateRequest) {
-                        const selectedTaxpayer = taxpayers.find(t => t.id === selectedTaxpayerId);
+                        let finalTaxpayerName = activeTaxpayer?.name || 'Desconocido';
+                        let finalTaxpayerId = selectedTaxpayerId;
+
+                        // If no active taxpayer is selected, try to find it via the transaction ID
+                        if (finalTaxpayerName === 'Desconocido' && requestTargetId) {
+                          const tx = transactions.find(t => t.id === requestTargetId);
+                          if (tx) {
+                            const tp = taxpayers.find(tp => tp.id === tx.taxpayerId);
+                            if (tp) {
+                              finalTaxpayerName = tp.name;
+                              finalTaxpayerId = tp.id;
+                            }
+                          }
+                        }
+
                         const req: AdminRequest = {
                           id: `REQ-${Date.now()}`,
                           type: newRequestType,
                           status: 'PENDING',
-                          requesterName: currentUser.name || 'Cajero',
-                          taxpayerName: selectedTaxpayer?.name || 'Desconocido',
+                          requesterName: currentUser?.name || 'Cajero',
+                          taxpayerName: finalTaxpayerName,
                           description: newRequestDesc,
                           transactionId: requestTargetId,
+                          taxpayerId: finalTaxpayerId, 
                           totalDebt: newRequestType === 'PAYMENT_ARRANGEMENT' ? newRequestAmount : undefined,
                           createdAt: new Date().toISOString()
                         };
@@ -1038,6 +1380,7 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
                         setNewRequestDesc('');
                         setNewRequestAmount(0);
                         setRequestTargetId('');
+                        alert("Solicitud enviada exitosamente al Administrador. Recibirá una notificación cuando sea procesada.");
                       }
                     }}
                     className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
@@ -1052,95 +1395,83 @@ export const TaxCollection: React.FC<TaxCollectionProps> = ({ taxpayers, transac
       }
 
       {/* --- CASHIER NOTIFICATIONS / REQUEST STATUS --- */}
-      {
-        adminRequests.filter(r => r.status !== 'ARCHIVED').length > 0 && (
-          <div className="fixed bottom-4 right-4 z-40 max-w-sm w-full">
-            <div className="bg-white border border-slate-200 shadow-2xl rounded-xl overflow-hidden flex flex-col max-h-[500px]">
-              <div className="bg-slate-800 text-white p-3 flex justify-between items-center cursor-pointer" onClick={() => {/* Toggle collapse could go here */ }}>
-                <h4 className="font-bold text-sm flex items-center">
-                  <Banknote className="mr-2" size={16} /> Estado de Solicitudes
-                </h4>
-                <span className="bg-slate-700 text-xs px-2 py-0.5 rounded-full">{adminRequests.filter(r => r.status !== 'ARCHIVED').length}</span>
-              </div>
 
-              <div className="p-2 bg-slate-50 overflow-y-auto space-y-2">
-                {[...adminRequests].filter(r => r.status !== 'ARCHIVED').reverse().map(req => (
-                  <div key={req.id} className={`p-3 rounded-lg border text-sm shadow-sm relative group ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100' :
-                    req.status === 'REJECTED' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200'
-                    }`}>
-                    {/* DISMISS BUTTON FOR PROCESSED REQUESTS */}
-                    {req.status !== 'PENDING' && (
-                      <button
-                        onClick={() => {
-                          if (onArchiveRequest) {
-                            onArchiveRequest(req.id);
-                          }
-                        }}
-                        className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1"
-                        title="Ocultar notificación"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-
-                    <div className="flex justify-between items-start mb-1 pr-6">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.type === 'VOID_TRANSACTION' ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
-                        }`}>
-                        {req.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Arreglo'}
-                      </span>
-                      <span className={`text-[10px] font-bold ${req.status === 'APPROVED' ? 'text-emerald-600' :
-                        req.status === 'REJECTED' ? 'text-red-600' : 'text-amber-500'
-                        }`}>
-                        {req.status === 'PENDING' ? 'EN ESPERA' : req.status}
-                      </span>
-                    </div>
-                    <p className="font-bold text-slate-700 truncate">{req.taxpayerName}</p>
-
-                    {/* APPROVED ACTIONS */}
-                    {req.status === 'APPROVED' && (
-                      <div className="mt-2 animate-fade-in">
-                        <p className="text-xs text-emerald-700 mb-2 font-medium">{req.responseNote || 'Solicitud Aprobada'}</p>
-                        {req.type === 'PAYMENT_ARRANGEMENT' ? (
-                          <button
-                            onClick={() => {
-                              setLoadedArrangement(req);
-                              const tp = taxpayers.find(t => t.name === req.taxpayerName);
-                              if (tp) setSelectedTaxpayerId(tp.id);
-                              setPaymentMethod(PaymentMethod.ARREGLO_PAGO as any);
-                              alert(`CARGANDO ARREGLO DE PAGO\n-------------------------\nAbono Inicial: B/. ${req.approvedAmount?.toFixed(2)}\nLetras: ${req.installments}\nTotal Deuda: B/. ${req.approvedTotalDebt?.toFixed(2)}`);
-                              // Auto-dismiss after loading? Maybe not, let user dismiss.
-                            }}
-                            className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded hover:bg-emerald-700 shadow-sm"
-                          >
-                            CARGAR COBRO
-                          </button>
-                        ) : (
-                          <div className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded text-center font-bold">
-                            ANULACIÓN AUTORIZADA
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* REJECTED REASON */}
-                    {req.status === 'REJECTED' && (
-                      <div className="mt-2 bg-red-100 text-red-800 text-xs p-2 rounded">
-                        <p className="font-bold mb-1">Rechazado por Admin:</p>
-                        <p>"{req.responseNote}"</p>
-                      </div>
-                    )}
-
-                    {/* PENDING INFO */}
-                    {req.status === 'PENDING' && (
-                      <p className="text-xs text-slate-400 mt-1 italic">Esperando respuesta del administrador...</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* --- RECENT TRANSACTIONS (FOR VOID/REFERENCE) --- */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-6">
+        <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <History size={18} /> Transacciones {historyFilterDate === new Date().toLocaleDateString('en-CA') ? '(Hoy)' : `(${historyFilterDate})`}
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">Ver Fecha:</span>
+            <input 
+              type="date" 
+              value={historyFilterDate}
+              onChange={(e) => setHistoryFilterDate(e.target.value)}
+              className="text-xs border rounded-lg px-2 py-1 focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
           </div>
-        )
-      }
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50/50 text-slate-500 font-bold uppercase text-[10px]">
+              <tr>
+                <th className="px-6 py-3">Hora</th>
+                <th className="px-6 py-3">Contribuyente</th>
+                <th className="px-6 py-3">Concepto</th>
+                <th className="px-6 py-3 text-center">Estado</th>
+                <th className="px-6 py-3 text-right">Monto</th>
+                <th className="px-6 py-3 text-right">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(transactions || [])
+                .filter(t => t.tellerName === currentUser?.name && t.date === historyFilterDate && !t.id.startsWith('VOID-'))
+                .sort((a, b) => b.time.localeCompare(a.time)) // Newest first
+                .slice(0, 15)
+                .map(tx => (
+                  <tr key={tx.id} className={`hover:bg-slate-50 transition-colors ${tx.status === 'ANULADO' ? 'bg-red-50/30 opacity-80' : ''}`}>
+                    <td className="px-6 py-4 font-mono text-xs">{tx.time}</td>
+                    <td className="px-6 py-4 font-bold text-slate-700">
+                      {taxpayers.find(tp => tp.id === tx.taxpayerId)?.name || 'Desconocido'}
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 truncate max-w-[200px]">{tx.description}</td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        tx.status === 'ANULADO' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        {tx.status}
+                      </span>
+                    </td>
+                    <td className={`px-6 py-4 text-right font-bold ${tx.amount < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                      B/. {(tx.amount || 0).toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {tx.status !== 'ANULADO' && (
+                        <button
+                          onClick={() => {
+                            setRequestTargetId(tx.id);
+                            setNewRequestType('VOID_TRANSACTION');
+                            setNewRequestDesc(`Solicito anulación del recibo ${tx.id} por error en el cobro.`);
+                            setShowRequestModal(true);
+                          }}
+                          className="text-red-600 hover:text-red-700 font-bold text-xs bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          Anular
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              {(transactions || []).filter(t => t.tellerName === currentUser?.name && t.date === historyFilterDate).length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic">No se encontraron transacciones para esta fecha.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
     </div >
   );

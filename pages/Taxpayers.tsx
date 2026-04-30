@@ -30,6 +30,7 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
   const [historyTaxpayer, setHistoryTaxpayer] = useState<Taxpayer | null>(null);
   const [viewTaxpayer, setViewTaxpayer] = useState<Taxpayer | null>(null); // State for viewing full details
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [editReason, setEditReason] = useState('');
 
   // --- New Taxpayer Form State (Now Main View) ---
   // Initial empty state
@@ -90,6 +91,7 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
     setNewTp(initialFormState);
     setIsEditing(false);
     setEditingId(null);
+    setEditReason('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -160,8 +162,8 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
       };
 
       if (isEditing && editingId) {
-        const reason = prompt('Por favor, ingrese el motivo de la edición para la aprobación del Administrador:');
-        if (!reason) {
+        if (!editReason || editReason.trim().length < 5) {
+          alert('Por favor, ingrese un motivo válido para la edición (mínimo 5 caracteres).');
           setIsUploading(false);
           return;
         }
@@ -172,16 +174,17 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
           status: 'PENDING',
           requesterName: 'Cajero/Usuario',
           taxpayerName: taxpayerData.name || 'Desconocido',
-          description: reason,
+          description: editReason,
           taxpayerId: editingId,
           payload: taxpayerData as Taxpayer,
           createdAt: new Date().toISOString()
         };
 
-        onCreateRequest(request);
+        await onCreateRequest(request);
         alert('Solicitud de edición enviada al Administrador.');
         handleCancelEdit();
         setFiles({});
+        setEditReason('');
       } else {
         const finalStatus = (taxpayerData.balance && taxpayerData.balance > 0) ? TaxpayerStatus.MOROSO : taxpayerData.status;
 
@@ -201,9 +204,9 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
         );
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving taxpayer:', error);
-      alert('Ocurrió un error al guardar.');
+      alert(`Ocurrió un error al guardar: ${error.message || JSON.stringify(error)}`);
     } finally {
       setIsUploading(false);
     }
@@ -816,6 +819,25 @@ export const Taxpayers: React.FC<TaxpayersProps> = ({ taxpayers, transactions, o
                 )}
               </div>
             </div>
+            
+            {/* SECTION 5: EDIT REASON (Only in Edit Mode) */}
+            {isEditing && (
+              <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 mt-6 animate-fade-in">
+                <h4 className="text-lg font-bold text-amber-800 mb-4 flex items-center">
+                  <ShieldAlert size={20} className="mr-2" /> Justificación de la Edición
+                </h4>
+                <p className="text-sm text-amber-700 mb-3 font-medium">
+                  Este cambio requiere aprobación del administrador. Explique el motivo de la modificación:
+                </p>
+                <textarea
+                  required
+                  className="w-full border-2 border-amber-200 rounded-xl p-4 focus:ring-4 focus:ring-amber-100 focus:border-amber-500 transition-all text-black text-base min-h-[100px]"
+                  placeholder="Ej: Se corrige el nombre según cédula física adjunta..."
+                  value={editReason}
+                  onChange={e => setEditReason(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="flex justify-end pt-6 border-t border-slate-100">
               {isEditing && (

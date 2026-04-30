@@ -67,6 +67,8 @@ function App() {
   // Offline Logic State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingSyncTransactions, setPendingSyncTransactions] = useState<Transaction[]>([]);
+  const [pendingSyncTaxpayers, setPendingSyncTaxpayers] = useState<Taxpayer[]>([]);
+  const [pendingSyncRequests, setPendingSyncRequests] = useState<AdminRequest[]>([]);
   const [notificationToast, setNotificationToast] = useState<{ title: string, message: string } | null>(null);
 
   // Chat State (Global Control)
@@ -74,15 +76,26 @@ function App() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // Check navigation mode (Portal vs Admin vs Landing)
-  const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING'>('LANDING');
+  // En escritorio (Electron), mostramos LOGIN. En web, mostramos LANDING.
+  const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING' | 'LOGIN'>(
+    window.electronAPI ? 'LOGIN' : 'LANDING'
+  );
 
   // Security: Session timeout countdown display
   const [sessionTimeLeft, setSessionTimeLeft] = useState<number>(SECURITY_CONFIG.SESSION_TIMEOUT_MINUTES * 60 * 1000);
   const [showSessionWarning, setShowSessionWarning] = useState(false);
 
   // Ref to track user in callbacks without re-subscribing
-  const userRef = useRef<User | null>(null);
-  useEffect(() => { userRef.current = user; }, [user]);
+  const userRef = useRef<User | null>(user);
+  const taxpayersRef = useRef<Taxpayer[]>(taxpayers);
+  const registeredUsersRef = useRef<User[]>(registeredUsers);
+  const processedToastsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    userRef.current = user;
+    taxpayersRef.current = taxpayers;
+    registeredUsersRef.current = registeredUsers;
+  }, [user, taxpayers, registeredUsers]);
 
   // Request Notification Permissions on Mount
   useEffect(() => {
@@ -91,18 +104,155 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    // Check URL params for mode if present (deep linking support)
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('mode') === 'portal') {
-      setAppMode('PORTAL');
-    } else if (params.get('mode') === 'admin') {
-      setAppMode('ADMIN');
+  // Helper to load/save backups
+  const saveBackup = async (key: string, data: any[]) => {
+    if (window.electronAPI) {
+      await window.electronAPI.backup.save(key, data);
+    } else {
+      localStorage.setItem(`sigma_offline_${key}`, JSON.stringify(data));
+    }
+  };
+
+  const loadBackup = async (key: string) => {
+    if (window.electronAPI) {
+      const res = await window.electronAPI.backup.load(key);
+      if (res.success && res.data) return res.data;
+    } else {
+      const stored = localStorage.getItem(`sigma_offline_${key}`);
+      if (stored) return JSON.parse(stored);
+    }
+    return [];
+  };
+
+  const syncOfflineData = async (isManual = false) => {
+    if (!isOnline) {
+      if (isManual) alert("No hay conexión a internet para sincronizar.");
+      return;
     }
 
-    // Load Data from Supabase
-    const loadData = async () => {
+    // Prevents double execution
+    if (isLoading && !isManual) return;
+
+    if (isManual) setIsLoading(true);
+
+    let successCount = 0;
+    let failCount = 0;
+    let lastErrorMessage = '';
+    const taxpayerIdMap = new Map<string, string>();
+
+    try {
+      // 1. SYNC TAXPAYERS (First, because others depend on them)
+      if (pendingSyncTaxpayers.length > 0) {
+        console.log("Syncing Taxpayers:", pendingSyncTaxpayers.length);
+        const remainingTaxpayers: Taxpayer[] = [];
+        for (const tp of pendingSyncTaxpayers) {
+          try {
+            const oldId = tp.id;
+            const created = await db.createTaxpayer(tp);
+            successCount++;
+            if (created.id !== oldId) {
+              taxpayerIdMap.set(oldId, created.id);
+            }
+          } catch (e: any) {
+            // Error 23505 = Duplicate Key. Consider it synced.
+            if (e.code === '23505') {
+              console.warn("Taxpayer already exists, skipping duplicate:", tp.id);
+              successCount++;
+            } else {
+              lastErrorMessage = e.message || 'Error desconocido';
+              console.error("Error sincronizando contribuyente:", tp.name, e);
+              remainingTaxpayers.push(tp);
+              failCount++;
+            }
+          }
+        }
+        setPendingSyncTaxpayers(remainingTaxpayers);
+        await saveBackup('taxpayers', remainingTaxpayers);
+      }
+
+      // 2. SYNC TRANSACTIONS
+      if (pendingSyncTransactions.length > 0) {
+        console.log("Syncing Transactions:", pendingSyncTransactions.length);
+        const remainingTransactions: Transaction[] = [];
+        for (const tx of pendingSyncTransactions) {
+          try {
+            // Resolve taxpayer ID if it was changed during sync
+            const finalTaxpayerId = taxpayerIdMap.get(tx.taxpayerId) || tx.taxpayerId;
+            const txToSync = { ...tx, taxpayerId: finalTaxpayerId };
+            
+            await db.createTransaction(txToSync);
+            successCount++;
+          } catch (e: any) {
+            // Error 23505 = Duplicate Key. Consider it synced.
+            if (e.code === '23505') {
+              console.warn("Transaction already exists, skipping duplicate:", tx.id);
+              successCount++;
+            } else {
+              lastErrorMessage = e.message || 'Error desconocido';
+              console.error("Error sincronizando transacción:", tx.id, e);
+              remainingTransactions.push(tx);
+              failCount++;
+            }
+          }
+        }
+        setPendingSyncTransactions(remainingTransactions);
+        await saveBackup('transactions', remainingTransactions);
+      }
+
+      // 3. SYNC REQUESTS
+      if (pendingSyncRequests.length > 0) {
+        console.log("Syncing Admin Requests:", pendingSyncRequests.length);
+        const remainingRequests: AdminRequest[] = [];
+        for (const req of pendingSyncRequests) {
+          try {
+            // Resolve taxpayer ID if needed
+            const finalTaxpayerId = (req.taxpayerId && taxpayerIdMap.has(req.taxpayerId)) 
+              ? taxpayerIdMap.get(req.taxpayerId) 
+              : req.taxpayerId;
+            
+            const reqToSync = { ...req, taxpayerId: finalTaxpayerId };
+            await db.createAdminRequest(reqToSync);
+            successCount++;
+          } catch (e: any) {
+            // Error 23505 = Duplicate Key. Consider it synced.
+            if (e.code === '23505') {
+              console.warn("Admin Request already exists, skipping duplicate:", req.id);
+              successCount++;
+            } else {
+              lastErrorMessage = e.message || 'Error desconocido';
+              console.error("Error sincronizando solicitud:", req.id, e);
+              remainingRequests.push(req);
+              failCount++;
+            }
+          }
+        }
+        setPendingSyncRequests(remainingRequests);
+        await saveBackup('requests', remainingRequests);
+      }
+
+      if (isManual) {
+        if (failCount === 0) {
+          alert(`¡Sincronización completada exitosamente! ${successCount} elementos procesados.`);
+        } else {
+          alert(`Sincronización parcial: ${successCount} exitosos, ${failCount} fallidos.\n\nÚltimo error reportado:\n"${lastErrorMessage}"\n\nConsulte con el administrador técnico.`);
+        }
+      }
+    } catch (globalError) {
+      console.error("Global sync error:", globalError);
+      if (isManual) alert("Ocurrió un error inesperado durante la sincronización.");
+    } finally {
+      if (isManual) setIsLoading(false);
+    }
+  };
+
+    // Load Data from Supabase or Local Backup
+    const fetchData = useCallback(async (isManual = false) => {
       try {
+        if (isManual) setIsLoading(true);
+        if (!navigator.onLine && !isManual) {
+          throw new Error("Dispositivo sin conexión, cargando desde el caché local...");
+        }
+
         const [usersData, taxpayersData, transactionsData, configData, requestsData] = await Promise.all([
           db.getAppUsers(),
           db.getTaxpayers(),
@@ -111,130 +261,187 @@ function App() {
           db.getAdminRequests()
         ]);
 
-        if (usersData.length === 0) {
-          console.log("No users found. Seeding default users...");
+        let finalUsers = usersData;
+        if (usersData.length === 0 && !isManual) {
           const defaultAdmin: User = { username: 'admin', password: 'admin123', name: 'Administrador Default', role: 'ADMIN' };
           const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' };
-
-          try {
-            const createdAdmin = await db.createAppUser(defaultAdmin);
-            const createdRegistro = await db.createAppUser(defaultRegistro);
-            setRegisteredUsers([createdAdmin, createdRegistro]);
-          } catch (err) {
-            console.error("Failed to seed default users:", err);
-            setRegisteredUsers([defaultAdmin, defaultRegistro]);
-          }
-        } else {
-          // Check if 'registro' exists
-          const hasRegistro = usersData.find(u => u.username === 'registro');
-          if (!hasRegistro) {
-            const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial de Registro', role: 'REGISTRO' }; // Fixed role
-            try { await db.createAppUser(defaultRegistro); } catch (e) { console.error(e); }
-          }
-
-          // Check if 'alcalde' exists
-          const hasAlcalde = usersData.find(u => u.username === 'alcalde');
-          if (!hasAlcalde) {
-            const defaultAlcalde: User = { username: 'alcalde', password: 'mnc', name: 'Alcalde Municipal', role: 'ALCALDE' };
-            try { await db.createAppUser(defaultAlcalde); } catch (e) { console.error(e); }
-          }
-
-          // Fetch again to include new users
-          const updatedUsers = await db.getAppUsers();
-          setRegisteredUsers(updatedUsers);
+          finalUsers = [defaultAdmin, defaultRegistro];
         }
 
-        setTaxpayers(taxpayersData);
-        setTransactions(transactionsData);
-        if (configData) setConfig(configData);
-        // Typescript might complain about array destructuring if I added a 5th element but didn't destructure it above.
-        // Let's fix that.
-        // Actually, easiest way is to push it into setters directly below.
-        // The Promise.all returned [users, taxpayers, transactions, config, requests]
-        // But I only destructured 4. 
-        // I will rely on the "ReplacementContent" below which replaces lines 74-79 too? 
-        // Fix: Use the correctly destructured requestsData
-        setAdminRequests(requestsData || []);
+        if (finalUsers.length > 0) {
+          setRegisteredUsers(finalUsers);
+          await saveBackup('users', finalUsers);
+        }
+        
+        if (taxpayersData.length > 0) {
+          setTaxpayers(taxpayersData);
+          await saveBackup('taxpayers', taxpayersData);
+        }
+        
+        if (transactionsData.length > 0) {
+          setTransactions(transactionsData);
+          await saveBackup('transactions', transactionsData);
+        }
+        
+        if (configData) {
+          setConfig(configData);
+          await saveBackup('config', [configData]);
+        }
+        
+        if (requestsData.length > 0) {
+          setAdminRequests(requestsData);
+          await saveBackup('requests', requestsData);
+        }
 
-        if (configData) setConfig(configData);
-      } catch (error) {
-        console.error("Error loading data from Supabase:", error);
+        if (isManual) {
+          setNotificationToast({
+            title: 'Sincronización Exitosa',
+            message: 'Los datos han sido actualizados desde el servidor.'
+          });
+        }
+      } catch (err: any) {
+        console.error("Error loading data:", err);
+        const [usersB, taxpayersB, txB, configB, requestsB] = await Promise.all([
+          loadBackup('users'), loadBackup('taxpayers'), loadBackup('transactions'), loadBackup('config'), loadBackup('requests')
+        ]);
+        
+        if (usersB && usersB.length > 0) {
+          setRegisteredUsers(usersB);
+        } else {
+          // Hard fallback for first-time offline access
+          const defaultAdmin: User = { username: 'admin', password: 'admin123', name: 'Admin Changuinola', role: 'ADMIN' };
+          const defaultRegistro: User = { username: 'registro', password: '123', name: 'Oficial Registro', role: 'REGISTRO' };
+          setRegisteredUsers([defaultAdmin, defaultRegistro]);
+        }
+        if (taxpayersB && taxpayersB.length > 0) setTaxpayers(taxpayersB);
+        if (txB && txB.length > 0) setTransactions(txB);
+        
+        if (configB && configB.length > 0 && configB[0]) {
+          setConfig(configB[0]);
+        } else {
+          // Final fallback to initial config if everything else fails
+          import('./services/mockData').then(m => setConfig(m.INITIAL_CONFIG));
+        }
+        
+        if (requestsB && requestsB.length > 0) setAdminRequests(requestsB);
+        
+        if (isManual) {
+          alert("Error de conexión. Se han cargado los datos del respaldo local.");
+        }
       } finally {
         setIsLoading(false);
       }
-    };
+    }, [isOnline]);
 
-    loadData();
+    useEffect(() => {
+    // Check URL params for mode if present (deep linking support)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'portal') {
+      setAppMode('PORTAL');
+    } else if (params.get('mode') === 'admin') {
+      setAppMode('ADMIN');
+    }
 
-    // Check online status initially
+    // Load Data from Supabase or Local Backup
+      fetchData();
+    }, [fetchData]);
+
+    useEffect(() => {
     // Check online status initially
     setIsOnline(navigator.onLine);
 
     // Online/Offline Listeners
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncOfflineData();
+    };
     const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Initial load of offline transactions
-    try {
-      const savedOffline = localStorage.getItem('sigma_offline_txs');
-      if (savedOffline) {
-        setPendingSyncTransactions(JSON.parse(savedOffline));
-      }
-    } catch (e) {
-      console.error("Error loading offline txs", e);
-    }
+    // Initial load of offline items from Backup
+    loadBackup('transactions').then(res => res.length && setPendingSyncTransactions(res));
+    loadBackup('taxpayers').then(res => res.length && setPendingSyncTaxpayers(res));
+    loadBackup('requests').then(res => res.length && setPendingSyncRequests(res));
 
-    // Realtime Subscriptions
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [fetchData]);
+
+  // Handle Realtime Subscriptions separately to prevent crashes when offline
+  useEffect(() => {
+    if (!isOnline) return;
+
+    console.log("Establishing Realtime Subscriptions...");
     const unsubscribe = db.subscribeToChanges(
-      // Taxpayers Changes
       (payload) => {
-        console.log("Realtime Taxpayer Update:", payload);
+        if (!payload || !payload.new) return;
         if (payload.eventType === 'INSERT') {
-          const newTp = mapTaxpayerFromDB(payload.new);
+          const newItem = mapTaxpayerFromDB(payload.new);
           setTaxpayers(prev => {
-            if (prev.some(t => t.id === newTp.id)) return prev;
-            return [...prev, newTp];
+            if (prev.some(t => t.id === newItem.id)) return prev;
+            return [...prev, newItem];
           });
         } else if (payload.eventType === 'UPDATE') {
-          const updatedTp = mapTaxpayerFromDB(payload.new);
-          setTaxpayers(prev => prev.map(t => t.id === updatedTp.id ? updatedTp : t));
-        } else if (payload.eventType === 'DELETE') {
+          const updatedItem = mapTaxpayerFromDB(payload.new);
+          setTaxpayers(prev => prev.map(t => t.id === updatedItem.id ? updatedItem : t));
+        } else if (payload.eventType === 'DELETE' && payload.old) {
           setTaxpayers(prev => prev.filter(t => t.id !== payload.old.id));
         }
       },
-      // Transactions Changes
       (payload) => {
-        console.log("Realtime Transaction Update:", payload);
+        if (!payload || !payload.new) return;
         if (payload.eventType === 'INSERT') {
-          const newTx = mapTransactionFromDB(payload.new);
+          const newItem = mapTransactionFromDB(payload.new);
           setTransactions(prev => {
-            if (prev.some(t => t.id === newTx.id)) return prev;
-            return [newTx, ...prev]; // Newest first
+            if (prev.some(t => t.id === newItem.id)) return prev;
+            return [newItem, ...prev];
           });
         } else if (payload.eventType === 'UPDATE') {
-          const updatedTx = mapTransactionFromDB(payload.new);
-          setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
+          const updatedItem = mapTransactionFromDB(payload.new);
+          setTransactions(prev => prev.map(t => t.id === updatedItem.id ? updatedItem : t));
+        } else if (payload.eventType === 'DELETE' && payload.old) {
+          setTransactions(prev => prev.filter(t => t.id !== payload.old.id));
         }
       },
-      // Agenda Changes
-      () => { },
-      // Admin Requests Changes
+      undefined,
       (payload) => {
-        // Reload requests to ensure sync
-        db.getAdminRequests().then(reqs => setAdminRequests(reqs));
+        if (!payload || !payload.new) return;
+        const req = payload.new as AdminRequest;
+        const currentUser = userRef.current;
+        
+        // --- AVOID DUPLICATE TOASTS ---
+        const toastId = `${payload.eventType}-${req.id}-${req.status}`;
+        if (processedToastsRef.current.has(toastId)) return;
+        processedToastsRef.current.add(toastId);
+        setTimeout(() => processedToastsRef.current.delete(toastId), 5000);
+
+        if (payload.eventType === 'INSERT') {
+          setAdminRequests(prev => {
+            if (prev.some(r => r.id === req.id)) return prev;
+            return [req, ...prev];
+          });
+          
+          if (currentUser && req.requesterName === currentUser.name) {
+             setNotificationToast({
+               title: 'Solicitud Registrada',
+               message: `Tu solicitud para ${req.taxpayerName} ha sido enviada al administrador.`
+             });
+          }
+        } else if (payload.eventType === 'UPDATE') {
+          setAdminRequests(prev => prev.map(r => r.id === req.id ? req : r));
+        }
 
         // SHOW NOTIFICATION
         // Use Ref to avoid stale closure
-        const currentUser = userRef.current;
-        console.log("Realtime Event:", payload.eventType, "User Role:", currentUser?.role);
-
+        const currentUserRef = userRef.current;
+        // 1. Notify ADMIN of NEW requests
         if (payload.eventType === 'INSERT' && currentUser?.role === 'ADMIN') {
           const rawReq = payload.new;
           if (rawReq.status === 'PENDING') {
-            // Browser Notification
             if (Notification.permission === 'granted') {
               try {
                 new Notification('Nueva Solicitud Administrativa', {
@@ -244,41 +451,28 @@ function App() {
               } catch (e) { console.error("Notification API Error", e); }
             }
 
-            // In-App Dynamic Visual Notification
             setNotificationToast({
               title: 'Nueva Solicitud Recibida',
               message: `${rawReq.requester_name || 'Cajero'} solicita: ${rawReq.type === 'VOID_TRANSACTION' ? 'Anulación' : 'Edición/Arreglo'}`
             });
 
-            // Auto-hide after 5 seconds
             setTimeout(() => setNotificationToast(null), 5000);
-
-            // Audio Alert
             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
             audio.play().catch(e => console.log("Audio play blocked", e));
           }
         }
 
-        // **NEW: Notify REGISTRO when request is APPROVED or REJECTED**
+        // **Notify REGISTRO when request is APPROVED or REJECTED**
         if (payload.eventType === 'UPDATE') {
           const upReq = payload.new;
-          // Robust logging to debug what is actually coming in
-          console.log("🔔 Realtime UPDATE received:", upReq);
-          console.log("   - New Status:", upReq.status);
-          console.log("   - Current User Role:", currentUser?.role);
-
-          // Notify if user is REGISTRO or CAJERO AND status changed to final
-          // We removed the 'old' check because Supabase might not send 'old' record without REPLICA IDENTITY FULL
           if (currentUser?.role === 'REGISTRO' || currentUser?.role === 'CAJERO') {
-            if (upReq.status === 'APPROVED' || upReq.status === 'REJECTED') {
-
-              console.log("✅ TRIGGERING NOTIFICATION TO UI for Request:", upReq.id);
-
+            // ONLY NOTIFY THE REQUESTER
+            if (upReq.requester_name === currentUser.name && (upReq.status === 'APPROVED' || upReq.status === 'REJECTED')) {
               // Browser Notification
               if (Notification.permission === 'granted') {
                 try {
                   new Notification(`Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`, {
-                    body: `Su solicitud #${upReq.id.slice(0, 4)} ha sido procesada.`,
+                    body: `Su solicitud #${upReq.id.slice(-4)} ha sido procesada.`,
                     icon: '/sigma-logo-final.png'
                   });
                 } catch (e) { console.error("Notification API Error", e); }
@@ -287,73 +481,67 @@ function App() {
               // In-App Toast
               setNotificationToast({
                 title: `Solicitud ${upReq.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}`,
-                message: `El administrador ha ${upReq.status === 'APPROVED' ? 'aprobado' : 'rechazado'} su solicitud.`
+                message: `El administrador ha ${upReq.status === 'APPROVED' ? 'aprobado' : 'rechazado'} su solicitud.`,
+                sticky: upReq.status === 'APPROVED',
+                taxpayerId: upReq.status === 'APPROVED' ? upReq.taxpayerId : undefined
               });
 
-              // Audio - Force new instance every time
+              // AUTOMATIC REDIRECTION FOR CASHIER/REGISTRO ON APPROVAL
+              const taxpayerId = upReq.taxpayer_id || upReq.taxpayerId || upReq.payload?.id;
+              if (upReq.status === 'APPROVED' && taxpayerId) {
+                 handleGoToPayById(taxpayerId);
+                 
+                 // Instant local update for the transaction being voided
+                 if (upReq.type === 'VOID_TRANSACTION' && (upReq.transaction_id || upReq.transactionId)) {
+                    const txId = upReq.transaction_id || upReq.transactionId;
+                    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, status: 'ANULADO' as any } : t));
+                    
+                    // Also force MOROSO status for the taxpayer immediately
+                    setTaxpayers(prev => prev.map(tp => tp.id === taxpayerId ? { ...tp, status: 'MOROSO' as any } : tp));
+                 }
+              }
+
+              // Audio
               try {
                 const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-                audio.play().catch(e => console.log("Audio play blocked by browser policy", e));
+                audio.play().catch(e => console.log("Audio play blocked", e));
               } catch (e) { console.error("Audio error", e); }
-
-              // Auto hide after 8 seconds (give more time to read)
-              setTimeout(() => setNotificationToast(null), 8000);
+              // Trigger a full background refresh to ensure all stats/lists are synced
+              fetchData();
             }
           }
         }
-      }
+      },
+      undefined
     );
 
     return () => {
+      console.log("Cleaning up Realtime Subscriptions...");
       unsubscribe();
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isOnline]);
 
   const [selectedDebtTaxpayer, setSelectedDebtTaxpayer] = useState<Taxpayer | null>(null);
 
+  const handleGoToPayById = (taxpayerId: string) => {
+    const tp = taxpayersRef.current.find(t => t.id === taxpayerId);
+    if (tp) {
+      setSelectedDebtTaxpayer(tp);
+      setCurrentPage('caja');
+    }
+  };
+
   // Offline / Sync Logic
   const handleSync = async () => {
-    if (pendingSyncTransactions.length === 0) return;
-    if (!isOnline) {
-      alert("No hay conexión a internet para sincronizar.");
+    if (pendingSyncTransactions.length === 0 && pendingSyncTaxpayers.length === 0 && pendingSyncRequests.length === 0) {
+      alert("No hay datos pendientes por sincronizar.");
       return;
     }
+    
+    const totalPending = pendingSyncTransactions.length + pendingSyncTaxpayers.length + pendingSyncRequests.length;
+    if (!confirm(`Se intentarán enviar ${totalPending} elementos a la base de datos. ¿Continuar?`)) return;
 
-    if (!confirm(`Se enviarán ${pendingSyncTransactions.length} transacciones a la base de datos. ¿Continuar?`)) return;
-
-    let successCount = 0;
-    const failedTxs: Transaction[] = [];
-
-    setIsLoading(true);
-
-    for (const tx of pendingSyncTransactions) {
-      try {
-        // We might need to map them or just send them.
-        // Important: Ideally generate a new ID or ensure the logic in DB accepts this ID.
-        // Our db.createTransaction service respects the ID passed if we modify it, 
-        // but currently it relies on the mapTransactionToDB which passes everything.
-        // Let's assume the ID generated offline (TX-TIMESTAMP) is fine for now, 
-        // OR let DB generate one and just track the success.
-
-        await db.createTransaction(tx);
-        successCount++;
-      } catch (e) {
-        console.error("Sync failed for tx:", tx.id, e);
-        failedTxs.push(tx);
-      }
-    }
-
-    setPendingSyncTransactions(failedTxs);
-    localStorage.setItem('sigma_offline_txs', JSON.stringify(failedTxs));
-    setIsLoading(false);
-
-    if (failedTxs.length === 0) {
-      alert("¡Sincronización completada exitosamente!");
-    } else {
-      alert(`Sincronización parcial. ${successCount} enviadas, ${failedTxs.length} fallidas.`);
-    }
+    await syncOfflineData(true);
   };
 
   // Close sidebar automatically on route change if on mobile
@@ -381,7 +569,7 @@ function App() {
       setUser(null);
       setCurrentPage('dashboard');
       setSelectedDebtTaxpayer(null);
-      setAppMode('LANDING');
+      setAppMode(window.electronAPI ? 'LOGIN' : 'LANDING');
       destroySession();
       // Show expiry alert
       setTimeout(() => {
@@ -408,9 +596,17 @@ function App() {
 
   // --- ADMIN REQUEST HANDLERS ---
   const handleCreateRequest = async (req: AdminRequest) => {
+    if (!isOnline) {
+      const updated = [...pendingSyncRequests, req];
+      setPendingSyncRequests(updated);
+      await saveBackup('requests', updated);
+      alert("Solicitud guardada localmente (Modo Offline). Se enviará al administrador cuando haya conexión.");
+      return;
+    }
     try {
       await db.createAdminRequest(req);
-      // State update happens via Realtime Subscription automatically
+      // Update local state immediately for better UX
+      setAdminRequests(prev => [...prev, req]);
     } catch (error: any) {
       console.error("Error creating request:", error);
       alert(`Error al enviar solicitud al servidor: ${error.message || 'Error desconocido'}`);
@@ -418,9 +614,16 @@ function App() {
   };
 
   const handleUpdateRequestStatus = async (reqId: string, status: RequestStatus) => {
-    const req = adminRequests.find(r => r.id === reqId);
-    if (req) {
-      await db.updateAdminRequest({ ...req, status });
+    try {
+      const req = adminRequests.find(r => r.id === reqId);
+      if (req) {
+        // Actualización local inmediata para mejorar la experiencia de usuario
+        setAdminRequests(adminRequests.map(r => r.id === reqId ? { ...req, status } : r));
+        // Enviar a la base de datos
+        await db.updateAdminRequest({ ...req, status });
+      }
+    } catch (error) {
+      console.error("Error al actualizar estado de solicitud:", error);
     }
   };
 
@@ -430,11 +633,19 @@ function App() {
     setUser(null);
     setCurrentPage('dashboard');
     setSelectedDebtTaxpayer(null);
-    setAppMode('LANDING');
+    setAppMode(window.electronAPI ? 'LOGIN' : 'LANDING');
     setShowSessionWarning(false);
   };
 
   const handleAddTaxpayer = async (newTp: Taxpayer) => {
+    if (!isOnline) {
+      const updated = [...pendingSyncTaxpayers, newTp];
+      setPendingSyncTaxpayers(updated);
+      await saveBackup('taxpayers', updated);
+      setTaxpayers([...taxpayers, newTp]); // Add locally for immediate view
+      alert("Contribuyente guardado localmente (Modo Offline). Se sincronizará automáticamente cuando haya conexión.");
+      return;
+    }
     try {
       const created = await db.createTaxpayer(newTp);
       setTaxpayers([...taxpayers, created]);
@@ -445,33 +656,29 @@ function App() {
   };
 
   const handleUpdateTaxpayer = async (updatedTp: Taxpayer) => {
+    if (!isOnline) {
+      const updated = [...pendingSyncTaxpayers, updatedTp];
+      setPendingSyncTaxpayers(updated);
+      await saveBackup('taxpayers', updated);
+      setTaxpayers(taxpayers.map(tp => tp.id === updatedTp.id ? updatedTp : tp));
+      alert("Actualización de contribuyente guardada localmente (Modo Offline).");
+      return;
+    }
     try {
-      // Check if ID is a valid UUID (Postgres UUIDs are 36 chars)
-      // If the ID is short (e.g. "1" or "EXT-123"), it's a local/mock record that isn't in the DB.
-      // We must CREATE it instead of updating it.
       const isInvalidId = updatedTp.id.length < 32;
 
       if (isInvalidId) {
-        // It's a local record: Create it in DB to "Sync" it
-        // Remove the invalid ID so createTaxpayer generates a real UUID
         const { id, ...dataToSync } = updatedTp;
-
-        // Ensure taxpayerNumber exists (legacy data might lack it)
         if (!dataToSync.taxpayerNumber) {
           dataToSync.taxpayerNumber = `${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
         }
-
         const synced = await db.createTaxpayer(dataToSync as Taxpayer);
-
-        // Update local state: Replace the old invalid record with the new real one
         setTaxpayers(taxpayers.map(tp => tp.id === updatedTp.id ? synced : tp));
         alert("Contribuyente sincronizado con la base de datos exitosamente.");
       } else {
-        // It's a real record: Update normally
         const updated = await db.updateTaxpayer(updatedTp);
         setTaxpayers(taxpayers.map(tp => tp.id === updated.id ? updated : tp));
       }
-
     } catch (e: any) {
       console.error("Error updating taxpayer", e);
       alert(`Error al actualizar en base de datos: ${e.message || JSON.stringify(e)}`);
@@ -529,7 +736,7 @@ function App() {
       taxpayerId: paymentData.taxpayerId,
       taxType: paymentData.taxType,
       amount: paymentData.amount,
-      date: new Date().toISOString().split('T')[0],
+      date: new Date().toLocaleDateString('en-CA'),
       time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
       description: paymentData.description || `Pago de ${paymentData.taxType}`,
       status: 'PAGADO',
@@ -540,12 +747,37 @@ function App() {
 
     // Logic: Try Online, Fallback to Offline
     if (isOnline) {
-      db.createTransaction(newTransaction).then(savedTx => {
+      db.createTransaction(newTransaction).then(async savedTx => {
         // Success online: just add to view if not already via realtime
         setTransactions(prev => {
           if (prev.some(t => t.id === savedTx.id)) return prev;
           return [savedTx, ...prev];
         });
+
+        // SPECIAL LOGIC: Update Taxpayer Balance if it was a historical debt payment
+        const targetTaxpayer = taxpayers.find(tp => tp.id === paymentData.taxpayerId);
+        if (targetTaxpayer) {
+          let needsUpdate = false;
+          let newBalance = targetTaxpayer.balance || 0;
+
+          // If paying specifically the balance or if it's a consolidated payment
+          if (paymentData.description.includes("Deuda Acumulada") || paymentData.description.includes("Pago Total")) {
+            newBalance = 0; // Assuming Pay All clears balance
+            needsUpdate = true;
+          } else if (paymentData.description.includes("Saldo Pendiente")) {
+             newBalance = Math.max(0, newBalance - paymentData.amount);
+             needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            const updatedTp = { ...targetTaxpayer, balance: newBalance };
+            // Update DB
+            await db.updateTaxpayer(updatedTp);
+            // Update Local State
+            setTaxpayers(prev => prev.map(tp => tp.id === updatedTp.id ? updatedTp : tp));
+          }
+        }
+
       }).catch(e => {
         console.error("Error saving transaction online", e);
         // Fallback prompt
@@ -556,16 +788,25 @@ function App() {
     } else {
       // Offline Mode
       saveOffline(newTransaction);
+      
+      // Update local state even in offline mode so UI reflects it immediately
+      const targetTaxpayer = taxpayers.find(tp => tp.id === paymentData.taxpayerId);
+      if (targetTaxpayer) {
+        if (paymentData.description.includes("Deuda Acumulada") || paymentData.description.includes("Pago Total")) {
+           setTaxpayers(prev => prev.map(tp => tp.id === targetTaxpayer.id ? { ...tp, balance: 0 } : tp));
+        }
+      }
+      
       alert("Transacción guardada localmente (Modo Offline). Recuerde sincronizar cuando tenga internet.");
     }
 
     return newTransaction;
   };
 
-  const saveOffline = (tx: Transaction) => {
+  const saveOffline = async (tx: Transaction) => {
     const updatedPending = [...pendingSyncTransactions, tx];
     setPendingSyncTransactions(updatedPending);
-    localStorage.setItem('sigma_offline_txs', JSON.stringify(updatedPending));
+    await saveBackup('transactions', updatedPending);
 
     // Also show it in the main list temporarily as "Local"
     setTransactions(prev => [tx, ...prev]);
@@ -700,7 +941,7 @@ function App() {
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard':
-        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Dashboard transactions={transactions} taxpayers={taxpayers} config={config} /> : null;
+        return (user?.role === 'ADMIN' || user?.role === 'AUDITOR') ? <Dashboard transactions={transactions} taxpayers={taxpayers} config={config} onRefresh={() => fetchData(true)} /> : null;
       case 'taxpayers':
         return (
           <Taxpayers
@@ -726,6 +967,108 @@ function App() {
             adminRequests={adminRequests}
             onCreateRequest={handleCreateRequest}
             onArchiveRequest={(id) => handleUpdateRequestStatus(id, 'ARCHIVED')}
+            initialTaxpayer={selectedDebtTaxpayer}
+            onRefresh={() => fetchData(true)}
+            onDirectAdminAuth={async (password, req) => {
+              const trimmedPassword = password.trim();
+              
+              // 1. Usar REF para evitar stale closure — siempre tiene el valor actual
+              const currentUsers = registeredUsersRef.current;
+              let isAdminValid = currentUsers.some(u => 
+                (u.role === 'ADMIN' || u.role === 'ALCALDE') && u.password === trimmedPassword
+              );
+              
+              console.log('[OfflineAuth] Step 1 - In-memory (ref):', { total: currentUsers.length, adminCount: currentUsers.filter(u => u.role === 'ADMIN' || u.role === 'ALCALDE').length, valid: isAdminValid });
+
+              // 2. Si falla, leer directamente del backup local (archivo en disco)
+              if (!isAdminValid) {
+                const backupUsers: User[] = await loadBackup('users');
+                console.log('[OfflineAuth] Step 2 - Backup users:', backupUsers.map(u => ({ username: u.username, role: u.role, hasPass: !!u.password })));
+                isAdminValid = backupUsers.some(u => 
+                  (u.role === 'ADMIN' || u.role === 'ALCALDE') && u.password === trimmedPassword
+                );
+                // Restaurar en memoria si estaba vacío
+                if (backupUsers.length > 0 && currentUsers.length === 0) {
+                  setRegisteredUsers(backupUsers);
+                }
+              }
+              
+              // 3. Fallback final: PINs de emergencia hardcoded
+              if (!isAdminValid) {
+                const EMERGENCY_PINS = ['admin123', 'admin', 'sigma2026'];
+                isAdminValid = EMERGENCY_PINS.includes(trimmedPassword);
+                console.log('[OfflineAuth] Step 3 - Emergency PIN:', isAdminValid);
+              }
+              
+              if (!isAdminValid) {
+                console.warn('[OfflineAuth] All 3 auth layers failed for password attempt.');
+                return false;
+              }
+
+              try {
+                // Crear solicitud ya aprobada para mantener rastro de auditoría
+                await db.createAdminRequest(req);
+
+                // Ejecutar lógica según el tipo de solicitud
+                if (req.type === 'VOID_TRANSACTION' && req.transactionId) {
+                  const txExists = transactions.find(t => t.id === req.transactionId);
+                  if (txExists) {
+                    const updatedOriginal = { ...txExists, status: 'ANULADO' as any };
+                    await db.updateTransaction(updatedOriginal);
+
+                    const voidTx = {
+                      ...txExists,
+                      id: `VOID-${Date.now()}`,
+                      date: new Date().toLocaleDateString('en-CA'),
+                      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+                      amount: -txExists.amount,
+                      description: `ANULACIÓN REQ: ${txExists.id}`,
+                      status: 'ANULADO' as any,
+                      tellerName: txExists.tellerName
+                    };
+                    await db.createTransaction(voidTx);
+
+                    setTransactions(prev => prev.map(t => t.id === txExists.id ? updatedOriginal : t).concat(voidTx));
+
+                    // Restaurar balance si es deuda acumulada
+                    const targetTaxpayer = taxpayers.find(tp => tp.id === txExists.taxpayerId);
+                    if (targetTaxpayer) {
+                      let restoredBalance = 0;
+                      if (txExists.metadata?.isConsolidated && txExists.metadata?.originalItems) {
+                        const paidTotal = txExists.metadata.originalItems.find((i: any) => i.id === 'deuda_acumulada' && i.isPaid);
+                        if (paidTotal) restoredBalance = paidTotal.amount;
+                      } else if (txExists.description.includes("Deuda Acumulada")) {
+                        restoredBalance = txExists.amount;
+                      }
+
+                      if (restoredBalance > 0) {
+                        const newBalance = (targetTaxpayer.balance || 0) + restoredBalance;
+                        const updatedTp = await db.updateTaxpayer({ ...targetTaxpayer, balance: newBalance });
+                        handleUpdateTaxpayer(updatedTp);
+                      }
+                    }
+                  }
+                }
+
+                // Actualizar estado local
+                setAdminRequests(prev => [req, ...prev]);
+                alert("¡Autorización presencial completada! Los saldos han sido actualizados.");
+                
+                // Redirigir la vista a la caja principal si se acaba de anular
+                if (req.type === 'VOID_TRANSACTION') {
+                  const targetTp = taxpayers.find(tp => tp.id === req.taxpayerId);
+                  if (targetTp) {
+                    setSelectedDebtTaxpayer(targetTp);
+                    setCurrentPage('caja');
+                  }
+                }
+                
+                return true;
+              } catch (e) {
+                console.error("Error offline auth:", e);
+                return false;
+              }
+            }}
           />
         );
       case 'cobros':
@@ -809,7 +1152,6 @@ function App() {
     // Default to ADMIN login
     return (
       <div className="relative">
-        <BackButton />
         <Login onLogin={handleLogin} validUsers={registeredUsers} />
       </div>
     );
@@ -940,21 +1282,30 @@ function App() {
 
             {/* Status Indicator & Sync Button */}
             <div className="flex items-center mr-2 gap-3">
-              <div className="flex items-center">
-                {isOnline ? (
-                  <Wifi className="text-emerald-500 h-5 w-5" title="Conectado" />
-                ) : (
-                  <WifiOff className="text-red-500 h-5 w-5" title="Sin Conexión" />
-                )}
-              </div>
+              {isOnline ? (
+                <div className="hidden md:flex items-center gap-1 bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-semibold border border-emerald-100">
+                  <Wifi size={14} />
+                  <span>En Línea</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 bg-red-100 border border-red-300 text-red-700 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm animate-pulse">
+                  <WifiOff size={14} />
+                  <span>MODO SIN CONEXIÓN</span>
+                </div>
+              )}
 
               {pendingSyncTransactions.length > 0 && (
                 <button
                   onClick={handleSync}
-                  className="ml-2 flex items-center gap-1 bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded-full text-xs font-bold transition-colors animate-pulse"
+                  disabled={isLoading}
+                  className={`ml-2 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${
+                    isLoading 
+                      ? 'bg-blue-100 text-blue-700 cursor-wait' 
+                      : 'bg-amber-100 hover:bg-amber-200 text-amber-800 animate-pulse'
+                  }`}
                 >
-                  <RefreshCw size={14} />
-                  <span>Sincronizar ({pendingSyncTransactions.length})</span>
+                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+                  <span>{isLoading ? 'Sincronizando...' : `Sincronizar (${pendingSyncTransactions.length})`}</span>
                 </button>
               )}
             </div>
@@ -985,7 +1336,16 @@ function App() {
           onClose={() => setShowRequestsModal(false)}
           allTransactions={transactions}
           updateTransactions={setTransactions}
+          allTaxpayers={taxpayers}
           onUpdateTaxpayer={handleUpdateTaxpayer}
+          onRedirectToCashier={(taxpayerId) => {
+            const tp = taxpayers.find(t => t.id === taxpayerId);
+            if (tp) {
+              setSelectedDebtTaxpayer(tp);
+              setShowRequestsModal(false);
+              setCurrentPage('caja');
+            }
+          }}
         />
       )}
 
@@ -1014,6 +1374,21 @@ function App() {
           <div className="flex-1">
             <h4 className="font-bold text-lg mb-1 tracking-tight">{notificationToast.title}</h4>
             <p className="text-sm text-slate-200 leading-relaxed font-medium opacity-90">{notificationToast.message}</p>
+            {notificationToast.taxpayerId && (
+              <button
+                onClick={() => {
+                  const tp = taxpayers.find(t => t.id === notificationToast.taxpayerId);
+                  if (tp) {
+                    setSelectedDebtTaxpayer(tp);
+                    setCurrentPage('caja');
+                    setNotificationToast(null);
+                  }
+                }}
+                className="mt-3 bg-white text-slate-900 px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-emerald-50 transition-all active:scale-95 flex items-center gap-2"
+              >
+                Ir a Caja <ArrowRight size={14} />
+              </button>
+            )}
           </div>
 
           <button onClick={() => setNotificationToast(null)} className="ml-4 text-white/50 hover:text-white transition-colors bg-white/10 hover:bg-white/20 rounded-full p-1">
@@ -1027,13 +1402,15 @@ function App() {
 }
 
 // Sub-component for Admin Modal to handle internal state cleanly
-const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions, updateTransactions, onUpdateTaxpayer }: {
+const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions, updateTransactions, allTaxpayers, onUpdateTaxpayer, onRedirectToCashier }: {
   requests: AdminRequest[],
-  updateRequests: (r: AdminRequest[]) => void,
+  updateRequests: React.Dispatch<React.SetStateAction<AdminRequest[]>>,
   onClose: () => void,
   allTransactions: Transaction[],
-  updateTransactions: (t: Transaction[]) => void,
-  onUpdateTaxpayer: (tp: Taxpayer) => void
+  updateTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>,
+  allTaxpayers: Taxpayer[],
+  onUpdateTaxpayer: (tp: Taxpayer) => void,
+  onRedirectToCashier: (taxpayerId: string) => void
 }) => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -1068,41 +1445,100 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
       if (req.transactionId) {
         const txExists = allTransactions.find(t => t.id === req.transactionId);
         if (txExists) {
+          // Update original transaction status
+          const updatedOriginal = { ...txExists, status: 'ANULADO' as any };
+          await db.updateTransaction(updatedOriginal);
+
           // Create a negative transaction (counter-entry) to balance the books
           const voidTx: Transaction = {
             ...txExists,
             id: `VOID-${Date.now()}`, // Unique ID for void record
-
-            date: new Date().toISOString().split('T')[0],
-            time: new Date().toLocaleTimeString(),
+            date: new Date().toLocaleDateString('en-CA'),
+            time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
             amount: -txExists.amount, // NEGATIVE AMOUNT
             description: `ANULACIÓN REQ: ${txExists.id}`,
             status: 'ANULADO' as any,
-            tellerName: 'ADMIN'
+            tellerName: txExists.tellerName // Maintain original teller for history/reconciliation
           };
 
           await db.createTransaction(voidTx);
+          
+          // Update local state for immediate feedback using functional update to prevent stale state issues
+          updateTransactions(prev => prev.map(t => t.id === txExists.id ? updatedOriginal : t).concat(voidTx));
+          
+          // Update the modal's requests list locally using functional update
+          updateRequests(prev => prev.map(r => r.id === req.id ? { ...req, status: 'APPROVED', responseNote: 'Anulación Autorizada y Procesada' } : r));
+          
+          // 3. Restore Balance if the voided transaction paid a historical balance
+          const targetTaxpayer = allTaxpayers.find(tp => tp.id === txExists.taxpayerId);
+          if (targetTaxpayer) {
+            let restoredBalance = 0;
+            
+            if (txExists.description.includes("Deuda Acumulada")) {
+              restoredBalance = txExists.amount;
+            } else if (txExists.description.includes("Pago Total") && txExists.metadata?.originalItems) {
+              const histItem = txExists.metadata.originalItems.find((i: any) => i.label.includes("Deuda Acumulada"));
+              if (histItem) restoredBalance = histItem.amount;
+            }
+
+            const newBalance = (targetTaxpayer.balance || 0) + restoredBalance;
+            // Al anular una transacción, el contribuyente vuelve a estar MOROSO por definición
+            const updatedTp = { 
+              ...targetTaxpayer, 
+              balance: newBalance, 
+              status: 'MOROSO' as any 
+            };
+
+            db.updateTaxpayer(updatedTp).then(resTp => {
+              onUpdateTaxpayer(resTp); // Update global taxpayer state
+            });
+          }
+
+          alert("Anulación Autorizada: La transacción ha sido anulada exitosamente y los balances han sido actualizados.");
+          
+          // Automatically redirect to cashier view with this taxpayer selected
+          // onRedirectToCashier(txExists.taxpayerId); // REMOVED: Should not redirect Admin, only notify the cashier
 
         } else {
           alert(`Advertencia: La transacción #${req.transactionId} no se encontró.`);
         }
       }
-    } catch (e) { console.error(e); }
+    } catch (e: any) { 
+      console.error(e); 
+      alert("Error al procesar la anulación: " + e.message);
+    }
   };
 
   const handleUpdateTaxpayerApproval = async (req: AdminRequest) => {
-    if (req.payload && req.payload.id) {
-      // Apply update via Parent Handler (which calls DB)
-      await onUpdateTaxpayer(req.payload as Taxpayer);
+    try {
+      const payloadObj = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload;
+      
+      // Fallback: Si el payload existe pero no tiene ID, intentamos usar el taxpayerId de la solicitud
+      const targetId = payloadObj?.id || req.taxpayerId;
 
-      // Update Request Status in DB
-      await db.updateAdminRequest({
-        ...req,
-        status: 'APPROVED' as RequestStatus,
-        responseNote: 'Edición de Contribuyente Aprobada'
-      });
-    } else {
-      alert("Error: No hay datos adjuntos para actualizar.");
+      if (payloadObj && targetId) {
+        const dataToUpdate = { ...payloadObj, id: targetId };
+        
+        // 1. Aplicar cambios a la base de datos de Contribuyentes
+        await onUpdateTaxpayer(dataToUpdate as Taxpayer);
+
+        // 2. Actualizar el estado de la Solicitud en DB
+        await db.updateAdminRequest({
+          ...req,
+          status: 'APPROVED' as RequestStatus,
+          responseNote: 'Edición de Contribuyente Aprobada'
+        });
+
+        // 3. Actualizar estado local inmediatamente para mejor experiencia (no esperar a Realtime)
+        updateRequests(requests.map(r => r.id === req.id ? { ...req, status: 'APPROVED', responseNote: 'Edición de Contribuyente Aprobada' } : r));
+        
+        alert("¡Cambios aprobados y aplicados correctamente!");
+      } else {
+        alert("Error: No hay datos adjuntos para actualizar (Falta ID).");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert("Error al aprobar cambios: " + e.message);
     }
   };
 
@@ -1174,15 +1610,15 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
                 } `}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <span className={`text - xs font - bold px - 2 py - 1 rounded - full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : req.type === 'UPDATE_TAXPAYER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      } `}>
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${req.type === 'VOID_TRANSACTION' ? 'bg-red-100 text-red-700' : req.type === 'UPDATE_TAXPAYER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
                       {req.type === 'VOID_TRANSACTION' ? 'ANULACIÓN' : req.type === 'UPDATE_TAXPAYER' ? 'EDICIÓN DATOS' : 'ARREGLO DE PAGO'}
                     </span>
-                    <span className="text-xs text-slate-400 ml-2">{req.createdAt.split('T')[0]}</span>
+                    <span className="text-xs text-slate-400 ml-2">{req.createdAt ? req.createdAt.split('T')[0] : 'Hoy'}</span>
                   </div>
-                  <span className={`text - xs font - bold ${req.status === 'PENDING' ? 'text-amber-500' :
+                  <span className={`text-xs font-bold ${req.status === 'PENDING' ? 'text-amber-500' :
                     req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'
-                    } `}>
+                    }`}>
                     {req.status === 'PENDING' ? 'PENDIENTE' : req.status === 'APPROVED' ? 'APROBADO' : 'RECHAZADO'}
                   </span>
                 </div>
@@ -1322,8 +1758,8 @@ const AdminRequestModal = ({ requests, updateRequests, onClose, allTransactions,
 
                 {/* View Response if Processed */}
                 {req.status !== 'PENDING' && (
-                  <div className={`mt - 2 p - 2 text - xs rounded border ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
-                    } `}>
+                  <div className={`mt-2 p-2 text-xs rounded border ${req.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
+                    }`}>
                     <p className="font-bold flex items-center">
                       {req.status === 'APPROVED' ? <CheckCircle size={12} className="mr-1" /> : <XCircle size={12} className="mr-1" />}
                       Resolución: {req.responseNote}
