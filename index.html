@@ -15,11 +15,11 @@
   <!-- This prevents XSS attacks by whitelisting trusted sources only  -->
   <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://maps.googleapis.com;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://maps.googleapis.com;
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com;
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data: blob: https://*.supabase.co https://lh3.googleusercontent.com;
-      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://maps.googleapis.com https://assets.mixkit.co;
+      connect-src 'self' http://localhost:* ws://localhost:* ws://127.0.0.1:* https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://maps.googleapis.com https://assets.mixkit.co;
       media-src 'self' https://assets.mixkit.co;
       frame-src 'none';
       object-src 'none';
@@ -87,28 +87,26 @@
       transition-duration: 200ms;
     }
 
-    /* Advanced Custom Scrollbar */
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+    /* Windows 11 Style Scrollbar (Global) */
+    ::-webkit-scrollbar {
+      width: 14px;
+      height: 14px;
     }
 
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.02);
-      border-radius: 4px;
+    ::-webkit-scrollbar-track {
+      background: transparent;
     }
 
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
+    ::-webkit-scrollbar-thumb {
+      background-color: rgba(0, 0, 0, 0.2);
       border-radius: 10px;
-      border: 2px solid transparent;
-      /* Padding effect */
-      background-clip: content-box;
+      border: 4px solid transparent;
+      background-clip: padding-box;
     }
 
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #94a3b8;
-      border: 1px solid transparent;
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(0, 0, 0, 0.4);
+      border: 3px solid transparent;
     }
 
     /* Keyframe Animations */
@@ -253,7 +251,7 @@
     }
   </style>
 
-  <script type="module" crossorigin src="./assets/R8AsPVnG.js"></script>
+  <script type="module" crossorigin src="./assets/Bft0H8cc.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/DE0RYTEb.js">
   <link rel="modulepreload" crossorigin href="./assets/Dmkey_AY.js">
   <link rel="modulepreload" crossorigin href="./assets/DW5aOgg_.js">
