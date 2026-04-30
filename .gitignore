@@ -41,3 +41,7 @@ build/
 
 # Electron build output (installers/binaries - too large for git)
 release/
+
+# Capacitor native projects (generated, too large for git)
+android/
+ios/

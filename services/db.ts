@@ -318,8 +318,18 @@ export const db = {
 
     createAdminRequest: async (req: AdminRequest) => {
         const dbData = mapAdminRequestToDB(req);
+        
+        // Ensure ID is a valid UUID or let the DB generate it
+        const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+        if (!dbData.id || !isUUID(dbData.id)) {
+            delete (dbData as any).id;
+        }
+
         const { data, error } = await supabase.from('admin_requests').insert(dbData).select().single();
-        if (error) throw error;
+        if (error) {
+            console.error("Supabase Create AdminRequest Error:", error);
+            throw error;
+        }
         return mapAdminRequestFromDB(data);
     },
 

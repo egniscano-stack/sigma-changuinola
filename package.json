@@ -1,7 +1,7 @@
 {
   "name": "sigma-changuinola",
   "private": true,
-  "version": "0.0.7",
+  "version": "0.0.8",
   "type": "module",
   "main": "electron.cjs",
   "scripts": {
@@ -14,10 +14,19 @@
     "electron:build": "vite build && electron-builder -c.extraMetadata.main=electron.cjs",
     "electron:build:win": "vite build && electron-builder --win -c.extraMetadata.main=electron.cjs",
     "electron:build:mac": "vite build && electron-builder --mac -c.extraMetadata.main=electron.cjs",
+    "cap:sync": "vite build && npx cap sync android",
+    "cap:build:android": "vite build && npx cap sync android && cd android && JAVA_HOME=$HOME/Library/Java/jdk-21/Contents/Home ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew assembleDebug && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk release/SIGMA-Changuinola-v0.0.7-android.apk && echo 'APK generated in release/'",
     "dist": "npm run electron:build"
   },
   "homepage": "./",
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
     "@google/genai": "^1.37.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.90.1",

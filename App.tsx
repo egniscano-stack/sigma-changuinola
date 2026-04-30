@@ -31,6 +31,7 @@ import {
   getSessionTimeRemaining,
   SECURITY_CONFIG,
 } from './services/security';
+import { isCapacitorNative, isDesktopOrMobile } from './services/nativeBridge';
 
 // Initial Municipality Info
 const INITIAL_MUNICIPALITY_INFO: MunicipalityInfo = {
@@ -76,9 +77,9 @@ function App() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // Check navigation mode (Portal vs Admin vs Landing)
-  // En escritorio (Electron), mostramos LOGIN. En web, mostramos LANDING.
+  // En escritorio (Electron) o móvil (Capacitor/Android), mostramos LOGIN. En web, mostramos LANDING.
   const [appMode, setAppMode] = useState<'ADMIN' | 'PORTAL' | 'LANDING' | 'LOGIN'>(
-    window.electronAPI ? 'LOGIN' : 'LANDING'
+    (window as any).electronAPI || (window as any).capacitorAPI || isCapacitorNative() ? 'LOGIN' : 'LANDING'
   );
 
   // Security: Session timeout countdown display
@@ -104,18 +105,23 @@ function App() {
     }
   }, []);
 
-  // Helper to load/save backups
+  // Helper to load/save backups (supports Electron, Capacitor/Android, and Web)
   const saveBackup = async (key: string, data: any[]) => {
-    if (window.electronAPI) {
-      await window.electronAPI.backup.save(key, data);
+    if ((window as any).electronAPI) {
+      await (window as any).electronAPI.backup.save(key, data);
+    } else if ((window as any).capacitorAPI) {
+      await (window as any).capacitorAPI.backup.save(key, data);
     } else {
       localStorage.setItem(`sigma_offline_${key}`, JSON.stringify(data));
     }
   };
 
   const loadBackup = async (key: string) => {
-    if (window.electronAPI) {
-      const res = await window.electronAPI.backup.load(key);
+    if ((window as any).electronAPI) {
+      const res = await (window as any).electronAPI.backup.load(key);
+      if (res.success && res.data) return res.data;
+    } else if ((window as any).capacitorAPI) {
+      const res = await (window as any).capacitorAPI.backup.load(key);
       if (res.success && res.data) return res.data;
     } else {
       const stored = localStorage.getItem(`sigma_offline_${key}`);
@@ -569,7 +575,7 @@ function App() {
       setUser(null);
       setCurrentPage('dashboard');
       setSelectedDebtTaxpayer(null);
-      setAppMode(window.electronAPI ? 'LOGIN' : 'LANDING');
+      setAppMode(isDesktopOrMobile() ? 'LOGIN' : 'LANDING');
       destroySession();
       // Show expiry alert
       setTimeout(() => {
@@ -633,7 +639,7 @@ function App() {
     setUser(null);
     setCurrentPage('dashboard');
     setSelectedDebtTaxpayer(null);
-    setAppMode(window.electronAPI ? 'LOGIN' : 'LANDING');
+    setAppMode(isDesktopOrMobile() ? 'LOGIN' : 'LANDING');
     setShowSessionWarning(false);
   };
 
@@ -972,49 +978,54 @@ function App() {
             onDirectAdminAuth={async (password, req) => {
               const trimmedPassword = password.trim();
               
-              // 1. Usar REF para evitar stale closure — siempre tiene el valor actual
+              // 1. Validate Password using 3-layer strategy
               const currentUsers = registeredUsersRef.current;
-              let isAdminValid = currentUsers.some(u => 
+              let isPasswordCorrect = currentUsers.some(u => 
                 (u.role === 'ADMIN' || u.role === 'ALCALDE') && u.password === trimmedPassword
               );
               
-              console.log('[OfflineAuth] Step 1 - In-memory (ref):', { total: currentUsers.length, adminCount: currentUsers.filter(u => u.role === 'ADMIN' || u.role === 'ALCALDE').length, valid: isAdminValid });
-
-              // 2. Si falla, leer directamente del backup local (archivo en disco)
-              if (!isAdminValid) {
+              if (!isPasswordCorrect) {
                 const backupUsers: User[] = await loadBackup('users');
-                console.log('[OfflineAuth] Step 2 - Backup users:', backupUsers.map(u => ({ username: u.username, role: u.role, hasPass: !!u.password })));
-                isAdminValid = backupUsers.some(u => 
+                isPasswordCorrect = backupUsers.some(u => 
                   (u.role === 'ADMIN' || u.role === 'ALCALDE') && u.password === trimmedPassword
                 );
-                // Restaurar en memoria si estaba vacío
                 if (backupUsers.length > 0 && currentUsers.length === 0) {
                   setRegisteredUsers(backupUsers);
                 }
               }
               
-              // 3. Fallback final: PINs de emergencia hardcoded
-              if (!isAdminValid) {
+              if (!isPasswordCorrect) {
                 const EMERGENCY_PINS = ['admin123', 'admin', 'sigma2026'];
-                isAdminValid = EMERGENCY_PINS.includes(trimmedPassword);
-                console.log('[OfflineAuth] Step 3 - Emergency PIN:', isAdminValid);
+                isPasswordCorrect = EMERGENCY_PINS.includes(trimmedPassword);
               }
               
-              if (!isAdminValid) {
-                console.warn('[OfflineAuth] All 3 auth layers failed for password attempt.');
+              if (!isPasswordCorrect) {
+                console.warn('[OfflineAuth] Password validation failed.');
                 return false;
               }
 
-              try {
-                // Crear solicitud ya aprobada para mantener rastro de auditoría
-                await db.createAdminRequest(req);
+              console.log('[OfflineAuth] Password verified. Proceeding with action...');
 
-                // Ejecutar lógica según el tipo de solicitud
+              // 2. Perform DB Operations (with individual failure handling to allow offline use)
+              try {
+                // Log the request
+                try {
+                  await db.createAdminRequest(req);
+                } catch (err) {
+                  console.warn('[OfflineAuth] Could not sync admin request log to server (offline?), continuing locally.');
+                }
+
+                // Handle Specific Logic
                 if (req.type === 'VOID_TRANSACTION' && req.transactionId) {
                   const txExists = transactions.find(t => t.id === req.transactionId);
                   if (txExists) {
                     const updatedOriginal = { ...txExists, status: 'ANULADO' as any };
-                    await db.updateTransaction(updatedOriginal);
+                    
+                    try {
+                      await db.updateTransaction(updatedOriginal);
+                    } catch (err) {
+                      console.warn('[OfflineAuth] Could not sync transaction update to server, continuing locally.');
+                    }
 
                     const voidTx = {
                       ...txExists,
@@ -1026,11 +1037,17 @@ function App() {
                       status: 'ANULADO' as any,
                       tellerName: txExists.tellerName
                     };
-                    await db.createTransaction(voidTx);
 
+                    try {
+                      await db.createTransaction(voidTx);
+                    } catch (err) {
+                      console.warn('[OfflineAuth] Could not sync void transaction to server, continuing locally.');
+                    }
+
+                    // Update local state immediately (CRITICAL for user feedback)
                     setTransactions(prev => prev.map(t => t.id === txExists.id ? updatedOriginal : t).concat(voidTx));
 
-                    // Restaurar balance si es deuda acumulada
+                    // Restore balance if applicable
                     const targetTaxpayer = taxpayers.find(tp => tp.id === txExists.taxpayerId);
                     if (targetTaxpayer) {
                       let restoredBalance = 0;
@@ -1043,18 +1060,26 @@ function App() {
 
                       if (restoredBalance > 0) {
                         const newBalance = (targetTaxpayer.balance || 0) + restoredBalance;
-                        const updatedTp = await db.updateTaxpayer({ ...targetTaxpayer, balance: newBalance });
+                        const updatedTp = { ...targetTaxpayer, balance: newBalance };
+                        
+                        try {
+                          await db.updateTaxpayer(updatedTp);
+                        } catch (err) {
+                          console.warn('[OfflineAuth] Could not sync taxpayer balance to server, continuing locally.');
+                        }
+                        
                         handleUpdateTaxpayer(updatedTp);
                       }
                     }
                   }
                 }
 
-                // Actualizar estado local
+                // Update local state for requests
                 setAdminRequests(prev => [req, ...prev]);
-                alert("¡Autorización presencial completada! Los saldos han sido actualizados.");
                 
-                // Redirigir la vista a la caja principal si se acaba de anular
+                // UI feedback
+                alert("¡Autorización presencial completada! Los cambios se han aplicado localmente.");
+                
                 if (req.type === 'VOID_TRANSACTION') {
                   const targetTp = taxpayers.find(tp => tp.id === req.taxpayerId);
                   if (targetTp) {
@@ -1065,7 +1090,9 @@ function App() {
                 
                 return true;
               } catch (e) {
-                console.error("Error offline auth:", e);
+                console.error("Critical error in direct auth processing:", e);
+                // Even on logic error, if we got here the password was correct, 
+                // but something in the logic failed. We still return false to show alert.
                 return false;
               }
             }}

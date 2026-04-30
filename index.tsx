@@ -1,6 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { initializeNativeBridge } from './services/nativeBridge';
+
+// Initialize Capacitor bridge BEFORE React mounts (for Android/iOS)
+initializeNativeBridge();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
