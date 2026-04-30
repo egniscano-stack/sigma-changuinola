@@ -126,6 +126,58 @@ export const nativeNetwork = {
 };
 
 // ============================================================
+// SYNC QUEUE: "Store and Forward" for Offline Operations
+// ============================================================
+export interface SyncItem {
+  id: string;
+  type: 'TRANSACTION' | 'ADMIN_REQUEST' | 'TAXPAYER_UPDATE';
+  data: any;
+  timestamp: string;
+}
+
+export const nativeSync = {
+  /**
+   * Add an item to the pending sync queue
+   */
+  queueItem: async (type: SyncItem['type'], data: any): Promise<void> => {
+    try {
+      const { data: currentQueue } = await nativeBackup.load('sync_queue');
+      const queue: SyncItem[] = currentQueue || [];
+      
+      const newItem: SyncItem = {
+        id: `SYNC-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        type,
+        data,
+        timestamp: new Date().toISOString(),
+      };
+      
+      queue.push(newItem);
+      await nativeBackup.save('sync_queue', queue);
+      console.log(`[SyncEngine] Item queued for later: ${type} (${newItem.id})`);
+    } catch (e) {
+      console.error('[SyncEngine] Error queuing item:', e);
+    }
+  },
+
+  /**
+   * Get all pending items
+   */
+  getQueue: async (): Promise<SyncItem[]> => {
+    const { data } = await nativeBackup.load('sync_queue');
+    return data || [];
+  },
+
+  /**
+   * Remove a processed item from the queue
+   */
+  removeItem: async (id: string): Promise<void> => {
+    const queue = await nativeSync.getQueue();
+    const newQueue = queue.filter(item => item.id !== id);
+    await nativeBackup.save('sync_queue', newQueue);
+  },
+};
+
+// ============================================================
 // UNIFIED API: Expose same interface as Electron for App.tsx
 // ============================================================
 export const initializeNativeBridge = () => {
@@ -133,6 +185,8 @@ export const initializeNativeBridge = () => {
     // Create a compatible API on window so App.tsx code works unchanged
     (window as any).capacitorAPI = {
       backup: nativeBackup,
+      sync: nativeSync,
+      network: nativeNetwork,
       isNative: true,
       platform: Capacitor.getPlatform(), // 'android' | 'ios' | 'web'
     };

@@ -37,6 +37,12 @@ const config: CapacitorConfig = {
     // Status bar color (dark to match app theme)
     backgroundColor: '#0F2233',
   },
+  ios: {
+    contentInset: 'always',
+    backgroundColor: '#0F2233',
+    // Status bar configuration for iOS
+    statusBarStyle: 'light',
+  },
 };
 
 export default config;

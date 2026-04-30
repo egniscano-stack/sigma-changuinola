@@ -352,26 +352,48 @@ function App() {
       fetchData();
     }, [fetchData]);
 
-    useEffect(() => {
-    // Check online status initially
-    setIsOnline(navigator.onLine);
-
+  useEffect(() => {
     // Online/Offline Listeners
     const handleOnline = () => {
+      console.log("[Network] Dispositivo en línea. Iniciando sincronización...");
       setIsOnline(true);
       syncOfflineData();
     };
-    const handleOffline = () => setIsOnline(false);
+    const handleOffline = () => {
+      console.log("[Network] Dispositivo fuera de línea.");
+      setIsOnline(false);
+    };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    let nativeCleanup: (() => void) | null = null;
+    
+    // Si estamos en Capacitor, usar el API nativo de red
+    const capAPI = (window as any).capacitorAPI;
+    if (capAPI && capAPI.network) {
+      capAPI.network.getStatus().then((status: boolean) => setIsOnline(status));
+      nativeCleanup = capAPI.network.onStatusChange((isOnline: boolean) => {
+        if (isOnline) handleOnline();
+        else handleOffline();
+      });
+    } else {
+      // Fallback a navegador estándar
+      setIsOnline(navigator.onLine);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+    }
 
     // Initial load of offline items from Backup
-    loadBackup('transactions').then(res => res.length && setPendingSyncTransactions(res));
-    loadBackup('taxpayers').then(res => res.length && setPendingSyncTaxpayers(res));
-    loadBackup('requests').then(res => res.length && setPendingSyncRequests(res));
+    loadBackup('transactions').then(res => {
+      if (res && res.length > 0) setPendingSyncTransactions(res);
+    });
+    loadBackup('taxpayers').then(res => {
+      if (res && res.length > 0) setPendingSyncTaxpayers(res);
+    });
+    loadBackup('requests').then(res => {
+      if (res && res.length > 0) setPendingSyncRequests(res);
+    });
 
     return () => {
+      if (nativeCleanup) nativeCleanup();
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
